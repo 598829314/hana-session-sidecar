@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>旁录 · Session Sidecar</title>
+<style>
+:root,
+:root[data-theme="light"] {
+  --bg:            #f5f3ee;
+  --panel:         #fdfcf9;
+  --raised:        #ffffff;
+  --line:          rgba(60,52,42,.12);
+  --line-soft:     rgba(60,52,42,.07);
+  --dash:          rgba(60,52,42,.22);
+  --ink:           #26241f;
+  --ink-2:         rgba(38,36,31,.62);
+  --ink-3:         rgba(38,36,31,.42);
+  --ink-4:         rgba(38,36,31,.28);
+  --accent:        #c15f3c;
+  --accent-soft:   rgba(193,95,60,.10);
+  --accent-ink:    #a84f30;
+  --st-active:     #c15f3c;
+  --st-active-bg:  rgba(193,95,60,.10);
+  --st-parked:     #96691f;
+  --st-parked-bg:  rgba(150,105,31,.10);
+  --st-done:       #5d7a52;
+  --st-done-bg:    rgba(93,122,82,.11);
+  --shadow:        0 1px 2px rgba(60,52,42,.05), 0 4px 14px rgba(60,52,42,.05);
+  --scroll-thumb:  rgba(60,52,42,.20);
+  --skel-a:        rgba(60,52,42,.06);
+  --skel-b:        rgba(60,52,42,.12);
+}
+:root[data-theme="dark"] {
+  --bg:            #28261f;
+  --panel:         #2f2d26;
+  --raised:        #37342c;
+  --line:          rgba(238,234,226,.13);
+  --line-soft:     rgba(238,234,226,.07);
+  --dash:          rgba(238,234,226,.22);
+  --ink:           #eeeae2;
+  --ink-2:         rgba(238,234,226,.62);
+  --ink-3:         rgba(238,234,226,.40);
+  --ink-4:         rgba(238,234,226,.26);
+  --accent:        #d97757;
+  --accent-soft:   rgba(217,119,87,.14);
+  --accent-ink:    #e08a6b;
+  --st-active:     #d97757;
+  --st-active-bg:  rgba(217,119,87,.14);
+  --st-parked:     #d9a45b;
+  --st-parked-bg:  rgba(217,164,91,.13);
+  --st-done:       #93ac85;
+  --st-done-bg:    rgba(147,172,133,.13);
+  --shadow:        0 1px 2px rgba(0,0,0,.2), 0 4px 14px rgba(0,0,0,.16);
+  --scroll-thumb:  rgba(238,234,226,.18);
+  --skel-a:        rgba(238,234,226,.05);
+  --skel-b:        rgba(238,234,226,.10);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  font-size: 12.5px;
+  line-height: 1.7;
+  overflow-x: hidden;
+  transition: background-color .15s ease-out, color .15s ease-out;
+}
+.serif { font-family: Georgia, "Times New Roman", "Songti SC", "STSong", "Noto Serif CJK SC", "Noto Serif SC", "SimSun", serif; }
+.mono { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 3px; }
+::selection { background: var(--accent-soft); color: var(--accent-ink); }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-soft), 0 0 0 4.5px var(--accent); border-radius: 4px; }
+#app { min-width: 0; padding-bottom: 4px; }
+.masthead { display: flex; align-items: center; gap: 8px; padding: 14px 16px 13px; }
+.wordmark { font-size: 16px; font-weight: 700; letter-spacing: .06em; }
+.wordmark .dot-star { color: var(--accent); margin-right: 6px; font-size: 13px; vertical-align: 1px; }
+.wordmark .en { margin-left: 7px; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; font-size: 9px; font-weight: 500; letter-spacing: .2em; color: var(--ink-3); }
+.focus-tag { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 2.5px 9px; border-radius: 999px; background: var(--st-done-bg); font-size: 9.5px; letter-spacing: .06em; color: var(--st-done); white-space: nowrap; }
+.focus-tag .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.focus-tag.unfocused { background: var(--st-parked-bg); color: var(--st-parked); }
+.session { margin: 0 10px; padding: 14px 14px 13px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 14px; box-shadow: var(--shadow); }
+.status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border-radius: 999px; background: var(--st-bg); margin-bottom: 9px; }
+.status-pill .led { width: 6px; height: 6px; border-radius: 50%; background: var(--st); }
+[data-status="active"] .status-pill .led { animation: ledPulse 2s ease-in-out infinite; }
+@keyframes ledPulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+.status-pill .status-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; color: var(--st); }
+.session-title { font-size: 16.5px; font-weight: 700; line-height: 1.5; letter-spacing: .01em; overflow-wrap: anywhere; }
+.session-meta { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 3px 0; font-size: 10px; letter-spacing: .03em; color: var(--ink-3); }
+.session-meta span + span::before { content: "·"; margin: 0 6px; color: var(--ink-4); }
+.unfocused-note { margin-top: 9px; display: inline-block; padding: 2px 9px; border-radius: 999px; border: 1px dashed var(--dash); font-size: 9.5px; letter-spacing: .04em; color: var(--ink-3); }
+#app[data-status="active"] { --st: var(--st-active); --st-bg: var(--st-active-bg); }
+#app[data-status="parked"] { --st: var(--st-parked); --st-bg: var(--st-parked-bg); }
+#app[data-status="done"]   { --st: var(--st-done);   --st-bg: var(--st-done-bg); }
+.fields { padding: 2px 0 0; }
+.field { border-bottom: 1px solid var(--line-soft); }
+.field:last-child { border-bottom: 0; }
+.field-head { display: flex; align-items: center; gap: 9px; padding: 15px 16px 8px; }
+.field-head::before { content: ""; width: 3px; height: 13px; flex: none; border-radius: 2px; background: var(--accent); }
+.field-name { font-family: Georgia, "Times New Roman", "Songti SC", "STSong", "Noto Serif CJK SC", "Noto Serif SC", "SimSun", serif; font-size: 13.5px; font-weight: 700; letter-spacing: .26em; color: var(--ink); }
+.field-count { min-width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; border-radius: 999px; background: var(--accent-soft); font-size: 9.5px; font-weight: 700; color: var(--accent-ink); }
+.field-body { padding: 1px 16px 17px 19px; }
+.field-text { color: var(--ink-2); overflow-wrap: anywhere; }
+.tl { list-style: none; }
+.tl li { position: relative; padding: 4px 0 4px 16px; overflow-wrap: anywhere; }
+.tl li::before { content: ""; position: absolute; left: 0; top: 13px; width: 7px; height: 2px; border-radius: 1px; background: var(--ink-4); }
+.tl-progress li:last-child::before { background: var(--accent); width: 9px; }
+.empty-hint { border: 1px dashed var(--dash); border-radius: 10px; padding: 9px 12px; font-size: 10.5px; letter-spacing: .03em; color: var(--ink-3); display: flex; align-items: center; gap: 8px; }
+.empty-hint::before { content: ""; width: 4px; height: 4px; flex: none; border-radius: 50%; background: var(--ink-4); }
+.note { padding: 8px 0; }
+.note + .note { border-top: 1px solid var(--line-soft); }
+.note-kind { display: inline-block; padding: 1px 8px; margin-right: 7px; border-radius: 999px; background: var(--accent-soft); font-size: 9px; font-weight: 600; letter-spacing: .08em; color: var(--accent-ink); vertical-align: 1px; }
+.note-ts { font-size: 9px; color: var(--ink-4); letter-spacing: .03em; }
+.note-text { margin-top: 4px; overflow-wrap: anywhere; }
+.pending-wrap { padding: 18px 16px 20px; }
+.pending-line { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 11px; letter-spacing: .04em; color: var(--ink-2); }
+.pending-line .led { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--accent); animation: ledPulse 2s ease-in-out infinite; }
+.skel { display: grid; gap: 10px; }
+.skel i { display: block; height: 9px; border-radius: 5px; background: linear-gradient(90deg, var(--skel-a), var(--skel-b), var(--skel-a)); background-size: 200% 100%; animation: shimmer 1.7s linear infinite; }
+.skel i:nth-child(1) { width: 42%; }
+.skel i:nth-child(2) { width: 88%; }
+.skel i:nth-child(3) { width: 71%; }
+.skel i:nth-child(4) { width: 56%; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.void { margin: 20px 16px; border: 1px dashed var(--dash); border-radius: 14px; padding: 34px 18px 30px; text-align: center; }
+.void-glyph { width: 26px; height: 26px; margin: 0 auto 13px; color: var(--accent); opacity: .75; }
+.void-title { font-size: 14px; font-weight: 700; letter-spacing: .12em; color: var(--ink-2); }
+.void-sub { margin-top: 7px; font-size: 10.5px; color: var(--ink-3); }
+.probe { padding: 10px 16px 12px; font-size: 9px; letter-spacing: .02em; color: var(--ink-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.probe b { font-weight: 400; color: var(--ink-3); }
+@media (max-width: 230px) {
+  .wordmark .en { display: none; }
+  .wordmark { font-size: 15px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<div id="app" data-status="active"></div>
+<script>
+"use strict";
+try {
+  window.parent.postMessage({ protocol: "hana.plugin.ui", version: 1, kind: "event", type: "hana.ready" }, "*");
+  window.parent.postMessage({ type: "ready" }, "*");
+} catch (e) {}
+var params = new URLSearchParams(location.search);
+document.documentElement.dataset.theme = params.get("hana-theme") === "dark" ? "dark" : "light";
+
+var STATUS_META = { active: { label: "进行中" }, parked: { label: "已搁置" }, done: { label: "已完成" } };
+var FIELDS = [
+  { key: "origin",   name: "缘起",   type: "text" },
+  { key: "progress", name: "进展",   type: "list", emptyText: "暂无进展记录" },
+  { key: "outcome",  name: "结果",   type: "text", emptyText: "尚无结果，会话仍在推进" },
+  { key: "parkedAt", name: "停在",   type: "text" },
+  { key: "next",     name: "接下来", type: "list", emptyText: "暂无后续事项" },
+  { key: "notes",    name: "备注",   type: "notes", emptyText: "暂无人工备注" }
+];
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+function relTime(iso) {
+  if (!iso) return "—";
+  var diff = Math.max(0, Date.now() - new Date(iso).getTime());
+  var m = Math.floor(diff / 60000);
+  if (m < 1) return "刚刚";
+  if (m < 60) return m + " 分钟前";
+  var h = Math.floor(m / 60);
+  if (h < 24) return h + " 小时前";
+  return Math.floor(h / 24) + " 天前";
+}
+function shortPath(p) { p = String(p || ""); return p.length > 46 ? "…" + p.slice(-45) : p; }
+
+function render(data) {
+  var app = document.getElementById("app");
+  var scrollY = window.scrollY || 0;
+  if (!data.current) {
+    app.removeAttribute("data-status");
+    app.innerHTML =
+      '<header class="masthead"><span class="wordmark serif"><span class="dot-star">✳</span>旁录<span class="en">SIDECAR</span></span></header>' +
+      '<div class="void">' +
+        '<svg class="void-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>' +
+        '<div class="void-title serif">还没有任何旁录</div>' +
+        '<div class="void-sub">开始一个会话后，旁录会自动生成并出现在这里</div>' +
+      '</div>' + renderProbe(data);
+    afterRender(scrollY);
+    return;
+  }
+  var c = data.current;
+  if (c.pending) {
+    app.dataset.status = "active";
+    app.innerHTML =
+      renderMasthead(data) +
+      '<section class="session" data-status="active">' +
+        '<div class="status-pill" style="--st:var(--st-active);--st-bg:var(--st-active-bg)"><span class="led"></span><span class="status-label">生成中</span></div>' +
+        '<h1 class="session-title serif">' + esc(c.title || "当前会话") + "</h1>" +
+        '<div class="session-meta"><span>' + esc(c.agentId || "") + "</span><span>" + (c.messageCount || 0) + " 条消息</span><span>" + relTime(c.lastActivityAt) + "</span></div>" +
+      "</section>" +
+      '<div class="pending-wrap">' +
+        '<div class="pending-line"><span class="led"></span>正在生成此会话的旁录，约 20 秒…</div>' +
+        '<div class="skel"><i></i><i></i><i></i><i></i></div>' +
+      "</div>" + renderProbe(data);
+    afterRender(scrollY);
+    return;
+  }
+  var st = STATUS_META[c.state.status] || STATUS_META.active;
+  app.dataset.status = c.state.status;
+  app.innerHTML =
+    renderMasthead(data) +
+    '<section class="session">' +
+      '<div class="status-pill"><span class="led"></span><span class="status-label">' + st.label + "</span></div>" +
+      '<h1 class="session-title serif">' + esc(c.title || "未命名会话") + "</h1>" +
+      '<div class="session-meta"><span>' + esc(c.agentId || "") + "</span><span>" + (c.messageCount || 0) + " 条消息</span><span>活跃于 " + relTime(c.lastActivityAt) + "</span></div>" +
+      (data.focused ? "" : '<span class="unfocused-note">未跟随到当前会话 · 显示最近活跃</span>') +
+    "</section>" +
+    '<div class="fields">' + FIELDS.map(function (f) { return renderField(f, c); }).join("") + "</div>" +
+    renderProbe(data);
+  afterRender(scrollY);
+}
+
+function renderMasthead(data) {
+  var f = data.focused;
+  return '<header class="masthead">' +
+    '<span class="wordmark serif"><span class="dot-star">✳</span>旁录<span class="en">SIDECAR</span></span>' +
+    '<span class="focus-tag ' + (f ? "" : "unfocused") + '"><span class="dot"></span>' + (f ? "跟随中" : "最近活跃") + "</span>" +
+  "</header>";
+}
+
+function renderField(f, c) {
+  var count = "", body = "";
+  if (f.type === "text") {
+    var v = c.state[f.key];
+    body = v ? '<div class="field-text">' + esc(v) + "</div>" : '<div class="empty-hint">' + (f.emptyText || "暂无记录") + "</div>";
+  } else if (f.type === "list") {
+    var arr = c.state[f.key] || [];
+    count = arr.length ? '<span class="field-count">' + arr.length + "</span>" : "";
+    var cls = f.key === "progress" ? "tl tl-progress" : f.key === "next" ? "tl tl-next" : "tl";
+    body = arr.length
+      ? '<ul class="' + cls + '">' + arr.map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("") + "</ul>"
+      : '<div class="empty-hint">' + f.emptyText + "</div>";
+  } else if (f.type === "notes") {
+    var ns = c.notes || [];
+    count = ns.length ? '<span class="field-count">' + ns.length + "</span>" : "";
+    body = ns.length
+      ? ns.map(function (n) {
+          return '<div class="note"><span class="note-kind">' + esc(n.kind) + '</span><span class="note-ts mono">' + relTime(n.ts) + '</span><div class="note-text">' + esc(n.text) + "</div></div>";
+        }).join("")
+      : '<div class="empty-hint">' + f.emptyText + "</div>";
+  }
+  return '<section class="field" data-field="' + f.key + '">' +
+    '<div class="field-head"><span class="field-name">' + f.name + "</span>" + count + "</div>" +
+    '<div class="field-body">' + body + "</div>" +
+  "</section>";
+}
+
+function renderProbe(data) {
+  var src = data.current ? shortPath(data.current.sessionPath) : "—";
+  var via = data._via ? " · " + data._via : "";
+  var t = data.generatedAt ? new Date(data.generatedAt).toLocaleTimeString("zh-CN", { hour12: false }) : "";
+  return '<div class="probe mono">follow ← <b>' + esc(src) + "</b>" + esc(via) + " · total " + (data.total || 0) + " · " + t + "</div>";
+}
+
+var stableFocus = null, lastGoodVia = null, pendingFocus = null, pendingCount = 0, hostBroadcastAt = 0;
+
+window.addEventListener("message", function (ev) {
+  var d = ev && ev.data;
+  if (!d || d.protocol !== "hana.session-follow") return;
+  if (d.type === "current-session") {
+    hostBroadcastAt = Date.now();
+    var p = d.sessionPath || null;
+    if (p && p !== stableFocus) {
+      stableFocus = p; lastGoodVia = "宿主";
+      load();
+    }
+  }
+});
+function pingHost() {
+  try { window.parent.postMessage({ protocol: "hana.session-follow", version: 1, type: "ping" }, "*"); } catch (e) {}
+}
+function domFocus() {
+  try {
+    var doc = window.parent && window.parent.document;
+    if (!doc) return null;
+    var shell = doc.querySelector('[class*="sessionShellActive"] [data-session-path]');
+    if (shell) return shell.getAttribute("data-session-path");
+    var items = doc.querySelectorAll('[data-session-path][class*="sessionItemActive"]');
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].offsetParent !== null) return items[i].getAttribute("data-session-path");
+    }
+  } catch (e) {}
+  return null;
+}
+function resolveFocus() {
+  if (Date.now() - hostBroadcastAt < 10000) return stableFocus;
+  var p = domFocus();
+  if (p && p !== stableFocus) {
+    if (p === pendingFocus) pendingCount++; else { pendingFocus = p; pendingCount = 1; }
+    if (pendingCount >= 2) { stableFocus = p; lastGoodVia = "视图"; }
+  }
+  return stableFocus;
+}
+function hostResize() {
+  try {
+    window.parent.postMessage({
+      protocol: "hana.plugin.ui", version: 1, id: "r" + Date.now(),
+      kind: "event", type: "ui.resize",
+      payload: { height: Math.min(document.body.scrollHeight + 4, 2400) }
+    }, "*");
+  } catch (e) {}
+}
+function afterRender(scrollY) {
+  try { window.scrollTo(0, scrollY); } catch (e) {}
+  hostResize();
+}
+function load() {
+  var focus = resolveFocus() || "";
+  var url = location.pathname + "/data" + (location.search || "") + "&focus=" + encodeURIComponent(focus);
+  fetch(url)
+    .then(function (r) { return r.json(); })
+    .then(function (d) { d._via = focus ? lastGoodVia : null; render(d); })
+    .catch(function () {});
+}
+
+load();
+pingHost();
+setInterval(load, 2500);
+setInterval(pingHost, 15000);
+</script>
+</body>
+</html>
