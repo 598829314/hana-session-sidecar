@@ -44,7 +44,7 @@ body[data-hana-theme="dark"] {
   --bg: rgba(255,255,255,.05);
   --border: rgba(255,255,255,.12);
 }
-.wrap { max-width: 860px; margin: 0 auto; padding: 28px 20px 64px; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 28px 24px 64px; }
 header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 24px; }
 h1 { font-size: 22px; font-weight: 650; letter-spacing: .02em; }
 .meta { color: var(--muted); font-size: 12px; }
@@ -96,7 +96,8 @@ button.rf:hover { border-color: var(--accent); }
 .tab.on { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); }
 .today-line { font-size: 13px; color: var(--muted); padding: 8px 12px; background: var(--bg); border: 1px dashed var(--border); border-radius: 10px; margin-bottom: 14px; }
 .today-line b { color: var(--fg); font-weight: 600; }
-.tcard { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin: 0 0 12px; }
+#tlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 14px; align-items: start; }
+.tcard { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin: 0; }
 .tcard.done { opacity: .62; }
 .thead { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .tname { font-size: 15.5px; font-weight: 650; }
@@ -250,6 +251,11 @@ function renderThreads() {
   }
   if (!TD.threads.length) html += '<div class="empty">还没有归拢出任何「事」。等有待归拢的会话时，在上面跑一次归拢建议。</div>';
   box.innerHTML = html;
+  // 上次还没处理的归拢提议，刷新后自动恢复
+  if (!PROPOSALS && TD.proposal && TD.proposal.proposals && TD.proposal.proposals.length) {
+    PROPOSALS = TD.proposal.proposals;
+    paintReview(TD.proposal.ts);
+  }
 }
 function looseToggle() { LOOSE_OPEN = !LOOSE_OPEN; renderThreads(); }
 function tcardHtml(t) {
@@ -274,6 +280,19 @@ async function tstatus(id, status) {
 }
 /* 归拢建议：拉建议 → 逐条核对（含具体会话名） → 勾选批准才落账 */
 let PROPOSALS = null;
+function paintReview(ts) {
+  const titleOf = {};
+  for (const s of (TD.unassigned || [])) titleOf[s.key] = s.title;
+  const when = ts ? ' <span style="font-size:12px;color:var(--muted)">（' + rel(ts) + "提的，刷新页面也不会丢）</span>" : "";
+  $("#review").innerHTML = '<div class="rv"><div style="font-size:13.5px;margin-bottom:2px"><b>AI 提了 ' + PROPOSALS.length + ' 条建议</b>' + when + '，理由和涉及的具体会话都在下面</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">逐条核对，不认可的勾掉；点「批准」才落账，点「算了」就清除这条建议。</div>'
+    + PROPOSALS.map((p, i) => {
+      const target = p.action === "assign" ? "归入已有事卡「" + escH(p.threadName) + "」" : "新建事卡「" + escH(p.name) + "」";
+      const titles = p.keys.map((k) => "<div>· " + escH(titleOf[k] || k) + "</div>").join("");
+      return '<label class="rv-item" style="align-items:flex-start"><input type="checkbox" checked data-i="' + i + '"><span style="flex:1"><b>' + target + "</b><span class='rv-reason'> —— " + escH(p.reason) + '</span><div style="margin-top:3px;font-size:12px;color:var(--muted)">' + titles + "</div></span></label>";
+    }).join("")
+    + '<div class="rv-actions"><button class="rv-ok" onclick="applyProposals()">批准选中的建议</button><button class="rv-cancel" onclick="cancelProposals()">算了</button></div></div>';
+}
 async function propose() {
   const btn = $("#propose-btn");
   btn.disabled = true; btn.textContent = "AI 正在读这些会话的摘要……";
@@ -283,16 +302,7 @@ async function propose() {
     if (d.error) { $("#review").innerHTML = '<div class="err">⚠ ' + escH(d.error) + "</div>"; return; }
     PROPOSALS = d.proposals || [];
     if (!PROPOSALS.length) { $("#review").innerHTML = '<div class="rv">' + escH(d.note || "没有需要归拢的会话") + "</div>"; return; }
-    const titleOf = {};
-    for (const s of (TD.unassigned || [])) titleOf[s.key] = s.title;
-    $("#review").innerHTML = '<div class="rv"><div style="font-size:13.5px;margin-bottom:2px"><b>AI 提了 ' + PROPOSALS.length + ' 条建议</b>，下面是它的理由和涉及的具体会话</div>'
-      + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">逐条核对，不认可的勾掉；点「批准」才落账，点「算了」就当没发生过。</div>'
-      + PROPOSALS.map((p, i) => {
-        const target = p.action === "assign" ? "归入已有事卡「" + escH(p.threadName) + "」" : "新建事卡「" + escH(p.name) + "」";
-        const titles = p.keys.map((k) => "<div>· " + escH(titleOf[k] || k) + "</div>").join("");
-        return '<label class="rv-item" style="align-items:flex-start"><input type="checkbox" checked data-i="' + i + '"><span style="flex:1"><b>' + target + "</b><span class='rv-reason'> —— " + escH(p.reason) + '</span><div style="margin-top:3px;font-size:12px;color:var(--muted)">' + titles + "</div></span></label>";
-      }).join("")
-      + '<div class="rv-actions"><button class="rv-ok" onclick="applyProposals()">批准选中的建议</button><button class="rv-cancel" onclick="cancelProposals()">算了</button></div></div>';
+    paintReview(d.ts);
   } finally {
     btn.disabled = false; btn.textContent = "让 AI 提个归拢建议";
   }
@@ -310,7 +320,11 @@ async function applyProposals() {
   PROPOSALS = null;
   loadThreads();
 }
-function cancelProposals() { PROPOSALS = null; $("#review").innerHTML = ""; }
+function cancelProposals() {
+  PROPOSALS = null;
+  $("#review").innerHTML = "";
+  fetch(BASE() + "/threads/proposal/clear" + QS(), { method: "POST" }); // 服务端也清掉，不再恢复
+}
 
 load();
 loadThreads();
@@ -377,6 +391,19 @@ function projectIdOfSession(sessionPath) {
     fs.writeFileSync(tmp, JSON.stringify(d, null, 2), "utf-8");
     fs.renameSync(tmp, threadsPath);
   };
+  // AI 归拢提议落盘：页面刷新/切换不丢，批准或手动清除才消失
+  const proposalPath = path.join(dataDir, "proposal.json");
+  const readProposal = () => {
+    try { return JSON.parse(fs.readFileSync(proposalPath, "utf-8")); } catch { return null; }
+  };
+  const writeProposal = (p) => {
+    try {
+      const tmp = proposalPath + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(p), "utf-8");
+      fs.renameSync(tmp, proposalPath);
+    } catch {}
+  };
+  const clearProposal = () => { try { fs.rmSync(proposalPath); } catch {} };
   // 一天的边界在凌晨 04:00（用户作息）：现在不到 4 点，今天从昨天 4 点算起
   const dayStart04 = () => {
     const n = new Date();
@@ -422,8 +449,23 @@ function projectIdOfSession(sessionPath) {
   };
 
   app.get("/sidecar/threads", (c) => {
-    try { return c.json(deriveThreads(listSidecars())); }
-    catch (e) { return c.json({ error: e.message }, 500); }
+    try {
+      const out = deriveThreads(listSidecars());
+      // 附上还活着的旧提议：已不含任何未归拢 key 的提议视为过期
+      const saved = readProposal();
+      if (saved && Array.isArray(saved.proposals) && saved.proposals.length) {
+        const looseKeys = new Set(out.unassigned.map((u) => u.key));
+        const alive = saved.proposals.filter((p) => (p.keys || []).some((k) => looseKeys.has(k)));
+        if (alive.length) out.proposal = { ts: saved.ts, proposals: alive };
+        else clearProposal();
+      }
+      return c.json(out);
+    } catch (e) { return c.json({ error: e.message }, 500); }
+  });
+
+  app.post("/sidecar/threads/proposal/clear", (c) => {
+    clearProposal();
+    return c.json({ ok: true });
   });
 
   app.post("/sidecar/threads/apply", async (c) => {
@@ -459,6 +501,7 @@ function projectIdOfSession(sessionPath) {
         }
       }
       writeThreads(data);
+      clearProposal(); // 落账后旧提议作废
       return c.json({ ok: true, count: data.threads.length });
     } catch (e) { return c.json({ error: e.message }, 500); }
   });
@@ -494,7 +537,9 @@ function projectIdOfSession(sessionPath) {
         keys: (Array.isArray(p.keys) ? p.keys : []).filter((k) => validKeys.has(k)),
         reason: String(p.reason || "").slice(0, 80)
       })).filter((p) => p.keys.length);
-      return c.json({ ok: true, proposals, looseCount: loose.length });
+      const ts = new Date().toISOString();
+      if (proposals.length) writeProposal({ ts, proposals });
+      return c.json({ ok: true, proposals, looseCount: loose.length, ts });
     } catch (e) { return c.json({ error: e.message }, 500); }
   });
 
