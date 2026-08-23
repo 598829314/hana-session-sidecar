@@ -109,16 +109,16 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .field-count { min-width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; border-radius: 999px; background: var(--accent-soft); font-size: 9.5px; font-weight: 700; color: var(--accent-ink); }
 .field-body { padding: 1px 16px 17px 19px; }
 .field-text { color: var(--ink-2); overflow-wrap: anywhere; }
-.tl-scroll { max-height: 240px; overflow-y: auto; border: 1px solid var(--line-soft); border-radius: 10px; padding: 6px 10px 6px 2px; background: rgba(0,0,0,.015); }
+.tl-scroll { max-height: 240px; overflow-y: auto; padding: 2px 8px 2px 0; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 26px, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 26px, #000 calc(100% - 26px), transparent); }
 .tl { list-style: none; }
 .tl li { position: relative; padding: 4px 0 4px 16px; overflow-wrap: anywhere; color: var(--ink-2); }
 .tl li::before { content: ""; position: absolute; left: 0; top: 13px; width: 7px; height: 2px; border-radius: 1px; background: var(--ink-4); }
-.tl-progress li:last-child::before { background: var(--accent); width: 9px; }
+.tl-progress li:first-child::before { background: var(--accent); width: 9px; }
 .tl-next { counter-reset: nexti; }
 .tl-next li { padding-left: 24px; }
 .tl-next li::before { counter-increment: nexti; content: counter(nexti); width: 15px; height: 15px; top: 5px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
 .tl-ts { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; letter-spacing: .02em; color: var(--ink-4); margin-right: 6px; vertical-align: 1px; }
-.tl-progress li:last-child .tl-ts { color: var(--accent-ink); }
+.tl-progress li:first-child .tl-ts { color: var(--accent-ink); }
 .empty-hint { border: 1px dashed var(--dash); border-radius: 10px; padding: 9px 12px; font-size: 10.5px; letter-spacing: .03em; color: var(--ink-3); display: flex; align-items: center; gap: 8px; }
 .empty-hint::before { content: ""; width: 4px; height: 4px; flex: none; border-radius: 50%; background: var(--ink-4); }
 .more { border-bottom: 0; }
@@ -284,7 +284,7 @@ function renderField(f, c) {
     var wrapOpen = f.key === "progress" ? '<div class="tl-scroll">' : "";
     var wrapClose = f.key === "progress" ? "</div>" : "";
     body = arr.length
-      ? wrapOpen + '<ul class="' + cls + '">' + arr.map(function (t) {
+      ? wrapOpen + '<ul class="' + cls + '">' + (f.key === "progress" ? arr.slice().reverse() : arr).map(function (t) {
           if (f.key !== "progress") return "<li>" + esc(t) + "</li>";
           var m = String(t).match(/^(\[?\d{1,2}:\d{2}\]?)\s+(.+)$/);
           if (!m) return "<li>" + esc(t) + "</li>";
@@ -296,7 +296,8 @@ function renderField(f, c) {
     count = ns.length ? '<span class="field-count">' + ns.length + "</span>" : "";
     body = ns.length
       ? ns.map(function (n) {
-          return '<div class="note"><span class="note-kind">' + esc(n.kind) + '</span><span class="note-ts mono">' + relTime(n.ts) + '</span><div class="note-text">' + esc(n.text) + "</div></div>";
+          var KIND_LABEL = { decision: "决策", blocker: "阻塞", next: "下一步", memo: "备忘" };
+          return '<div class="note"><span class="note-kind">' + esc(KIND_LABEL[n.kind] || n.kind || "备忘") + '</span><span class="note-ts mono">' + relTime(n.ts) + '</span><div class="note-text">' + esc(n.text) + "</div></div>";
         }).join("")
       : '<div class="empty-hint">' + f.emptyText + "</div>";
   }
