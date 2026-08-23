@@ -96,7 +96,8 @@ button.rf:hover { border-color: var(--accent); }
 .tab.on { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); }
 .today-line { font-size: 13px; color: var(--muted); padding: 8px 12px; background: var(--bg); border: 1px dashed var(--border); border-radius: 10px; margin-bottom: 14px; }
 .today-line b { color: var(--fg); font-weight: 600; }
-#tlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 14px; align-items: start; }
+.tgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; align-items: start; }
+.tmem-face { font-size: 13px; line-height: 1.75; margin-top: 4px; }
 .tcard { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin: 0; }
 .tcard.done { opacity: .62; }
 .thead { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
@@ -227,7 +228,7 @@ let LOOSE_OPEN = false;
 function renderThreads() {
   const box = $("#threads-view");
   if (!TD || TD.error) { box.innerHTML = '<div class="empty">台账数据加载失败</div>'; return; }
-  let html = '<div class="today-line" style="border-style:solid">这个页面把同一件事的聊天归成一张卡。整个页面只有两处需要你动手：<b>待归拢区点头</b>，以及事卡上点<b>标为办完</b>。其余都只是给你看的。</div>';
+  let html = "";
   if (TD.todayNames && TD.todayNames.length) {
     html += '<div class="today-line">今天被碰过的事：<b>' + TD.todayNames.map(escH).join("、") + "</b></div>";
   }
@@ -245,12 +246,13 @@ function renderThreads() {
   html += '<div id="review"></div>';
   const act = TD.threads.filter((t) => t.status !== "done");
   const done = TD.threads.filter((t) => t.status === "done");
-  html += act.map(tcardHtml).join("");
+  html += '<div class="tgrid">' + act.map(tcardHtml).join("") + "</div>";
   if (done.length) {
-    html += '<div class="label" style="margin:18px 0 10px">办完了 · ' + done.length + "</div>" + done.map(tcardHtml).join("");
+    html += '<div class="label" style="margin:18px 0 10px">办完了 · ' + done.length + '</div><div class="tgrid">' + done.map(tcardHtml).join("") + "</div>";
   }
   if (!TD.threads.length) html += '<div class="empty">还没有归拢出任何「事」。等有待归拢的会话时，在上面跑一次归拢建议。</div>';
   box.innerHTML = html;
+  if (FEEDBACK) { $("#review").innerHTML = FEEDBACK; FEEDBACK = null; }
   // 上次还没处理的归拢提议，刷新后自动恢复
   if (!PROPOSALS && TD.proposal && TD.proposal.proposals && TD.proposal.proposals.length) {
     PROPOSALS = TD.proposal.proposals;
@@ -258,19 +260,26 @@ function renderThreads() {
   }
 }
 function looseToggle() { LOOSE_OPEN = !LOOSE_OPEN; renderThreads(); }
+/* 事卡：卡面只放能帮你「想起这件事」的东西——事名 + 成员会话的真实标题；
+   停在哪 / 更多会话收进展开区，不在卡面占地方 */
 function tcardHtml(t) {
   const open = MEM_OPEN[t.id] ? "" : " style='display:none'";
-  const mem = (t.members || []).map((m) => "<div>· " + escH(m.title) + ' <span style="color:var(--muted)">' + escH(m.agentId || "") + " · " + rel(m.lastActivityAt) + "</span></div>").join("");
+  const ms = t.members || [];
+  const face = ms.slice(0, 3).map((m) => "<div>· " + escH(m.title) + ' <span style="color:var(--muted)">' + rel(m.lastActivityAt) + "</span></div>").join("");
+  const rest = ms.slice(3).map((m) => "<div>· " + escH(m.title) + ' <span style="color:var(--muted)">' + rel(m.lastActivityAt) + "</span></div>").join("");
+  const moreCount = ms.length - 3;
+  const hasDetail = moreCount > 0 || t.parkedAt;
+  const detail = '<div class="tmem-list"' + open + ">" + rest
+    + (t.parkedAt ? '<div style="margin-top:6px;font-size:12px;color:var(--muted)">最近一次停在这：' + escH(t.parkedAt) + "</div>" : "")
+    + "</div>";
   return '<div class="tcard' + (t.status === "done" ? " done" : "") + '">'
     + '<div class="thead">'
     + '<span class="tname">' + escH(t.name) + "</span>"
     + '<button class="tdone-btn" data-id="' + t.id + '" data-st="' + (t.status === "done" ? "active" : "done") + '" onclick="tstatus(this.dataset.id, this.dataset.st)">' + (t.status === "done" ? "其实还没办完" : "标为办完") + "</button>"
-    + '<span class="tstat">最后碰它 ' + rel(t.lastTouched) + "</span>"
+    + '<span class="tstat">' + ms.length + ' 个会话 · 最后碰它 ' + rel(t.lastTouched) + "</span>"
     + "</div>"
-    + (t.parkedAt ? '<div class="trow"><span class="tl2">停在哪</span>' + escH(t.parkedAt) + "</div>" : "")
-    + (t.next && t.next.length ? '<div class="trow tnext"><span class="tl2">还欠着</span>' + t.next.map(escH).join("；") + "</div>" : '<div class="trow"><span class="tl2">还欠着</span><span style="color:var(--muted)">无</span></div>')
-    + '<div class="tmem" data-id="' + t.id + '" onclick="tmem(this.dataset.id)">' + (MEM_OPEN[t.id] ? "▾ " : "▸ ") + "看看是哪 " + t.memberCount + " 个会话</div>"
-    + '<div class="tmem-list"' + open + ">" + mem + "</div>"
+    + '<div class="tmem-face">' + face + "</div>"
+    + (hasDetail ? '<div class="tmem" data-id="' + t.id + '" onclick="tmem(this.dataset.id)">' + (MEM_OPEN[t.id] ? "▾ 收起" : "▸ " + (moreCount > 0 ? "还有 " + moreCount + " 个会话" : "看看细节")) + "</div>" + detail : "")
     + "</div>";
 }
 function tmem(id) { MEM_OPEN[id] = !MEM_OPEN[id]; renderThreads(); }
@@ -280,6 +289,7 @@ async function tstatus(id, status) {
 }
 /* 归拢建议：拉建议 → 逐条核对（含具体会话名） → 勾选批准才落账 */
 let PROPOSALS = null;
+let FEEDBACK = null;   // 落账回执：渲染后贴一次就清
 function paintReview(ts) {
   const titleOf = {};
   for (const s of (TD.unassigned || [])) titleOf[s.key] = s.title;
@@ -316,9 +326,12 @@ async function applyProposals() {
     if (p.action === "assign" && p.threadId) ops.push({ action: "assign", id: p.threadId, keys: p.keys });
     else if (p.name) ops.push({ action: "create", name: p.name, keys: p.keys });
   }
-  if (ops.length) await fetch(BASE() + "/threads/apply" + QS(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ops }) });
+  if (ops.length) {
+    await fetch(BASE() + "/threads/apply" + QS(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ops }) });
+    FEEDBACK = '<div class="rv"><b>落账了：</b>' + ops.map((o) => (o.action === "create" ? "新建事卡「" + escH(o.name) + "」" : "归入已有事卡") + "（" + o.keys.length + " 个会话）").join("；") + "</div>";
+  }
   PROPOSALS = null;
-  loadThreads();
+  await loadThreads();
 }
 function cancelProposals() {
   PROPOSALS = null;
