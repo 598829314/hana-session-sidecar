@@ -23,11 +23,11 @@ function agentFromPath(sp) {
 // ── 侧边栏挂件（全量面板：所有会话、全部字段、默认展开）──
 
 const PAGE_CSS = `
-:root { color-scheme: light dark; }
+:root { color-scheme: light; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
-  background: transparent; color: var(--fg); line-height: 1.6;
+  background: #f7f6f2; color: var(--fg); line-height: 1.6;
   --fg: #1c1c1e; --muted: #8e8e93; --text-muted: #8e8e93; --card: rgba(127,127,127,.07);
   --bg: rgba(127,127,127,.06);
   --border: rgba(127,127,127,.18); --accent: #0a84ff;
@@ -600,7 +600,8 @@ function projectIdOfSession(sessionPath) {
 
   app.get("/sidecar", (c) => {
     const hc = c.req.query("hana-css") || "";
-    const th = c.req.query("hana-theme") || "inherit";
+    // 页面永远是日间模式：夜间模式的适配成本超过收益，统一用暖纸浅色
+    const th = "light";
     const hcLink = hc ? `<link rel="stylesheet" href="${esc(hc)}">` : "";
     return c.html(`<!DOCTYPE html>
 <html lang="zh">
