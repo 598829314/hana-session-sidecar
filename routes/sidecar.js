@@ -28,17 +28,20 @@ const PAGE_CSS = `
 body {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
   background: transparent; color: var(--fg); line-height: 1.6;
-  --fg: #1c1c1e; --muted: #8e8e93; --card: rgba(127,127,127,.07);
+  --fg: #1c1c1e; --muted: #8e8e93; --text-muted: #8e8e93; --card: rgba(127,127,127,.07);
+  --bg: rgba(127,127,127,.06);
   --border: rgba(127,127,127,.18); --accent: #0a84ff;
   --green: #30d158; --amber: #ff9f0a; --blue: #64d2ff;
 }
 body[data-hana-theme="light"] {
-  --fg: #1c1c1e; --muted: #8e8e93; --card: rgba(0,0,0,.04);
+  --fg: #1c1c1e; --muted: #8e8e93; --text-muted: #8e8e93; --card: rgba(0,0,0,.04);
+  --bg: rgba(0,0,0,.035);
   --border: rgba(0,0,0,.1); --accent: #0066cc;
   --green: #248a3d; --amber: #b25000; --blue: #0066cc;
 }
 body[data-hana-theme="dark"] {
-  --fg: #f2f2f7; --muted: #98989d; --card: rgba(255,255,255,.06);
+  --fg: #f2f2f7; --muted: #98989d; --text-muted: #98989d; --card: rgba(255,255,255,.06);
+  --bg: rgba(255,255,255,.05);
   --border: rgba(255,255,255,.12);
 }
 .wrap { max-width: 860px; margin: 0 auto; padding: 28px 20px 64px; }
@@ -100,7 +103,8 @@ button.rf:hover { border-color: var(--accent); }
 .tstat { margin-left: auto; font-size: 12px; color: var(--muted); }
 .trow { font-size: 13.5px; line-height: 1.7; margin-top: 5px; }
 .trow .tl2 { color: var(--muted); margin-right: 6px; font-size: 12.5px; }
-.tnext { color: var(--amber); }
+.tnext { color: var(--fg); }
+.tnext .tl2 { color: var(--amber); font-weight: 600; }
 .tmem { margin-top: 7px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
 .tmem:hover { color: var(--accent); }
 .tmem-list { margin-top: 5px; padding: 7px 10px; background: var(--bg); border-radius: 8px; font-size: 12.5px; }
@@ -218,36 +222,48 @@ async function loadThreads() {
     renderThreads();
   } catch (e) { /* 台账渲染失败不影响会话视图 */ }
 }
+let LOOSE_OPEN = false;
 function renderThreads() {
   const box = $("#threads-view");
   if (!TD || TD.error) { box.innerHTML = '<div class="empty">台账数据加载失败</div>'; return; }
-  let html = "";
+  let html = '<div class="today-line" style="border-style:solid">这个页面把同一件事的聊天归成一张卡。整个页面只有两处需要你动手：<b>待归拢区点头</b>，以及事卡上点<b>标为办完</b>。其余都只是给你看的。</div>';
   if (TD.todayNames && TD.todayNames.length) {
     html += '<div class="today-line">今天被碰过的事：<b>' + TD.todayNames.map(escH).join("、") + "</b></div>";
   }
-  html += '<button class="propose-btn" id="propose-btn" onclick="propose()">归拢未入账的会话</button>';
+  // 待归拢区：状态先摆出来，动作附带后果说明
+  const loose = TD.unassigned || [];
+  if (loose.length) {
+    html += '<div class="rv"><div style="font-size:13.5px;margin-bottom:4px"><b>' + loose.length + ' 个会话还没归入任何事</b>（单发问答不进台账也没关系）</div>'
+      + '<div class="tmem" onclick="looseToggle()">' + (LOOSE_OPEN ? "▾ 收起清单" : "▸ 看看是哪些") + "</div>"
+      + '<div class="tmem-list"' + (LOOSE_OPEN ? "" : ' style="display:none"') + ">"
+      + loose.map((s) => "<div>· " + escH(s.title) + ' <span style="color:var(--muted)">' + escH(s.agentId || "") + " · " + rel(s.lastActivityAt) + "</span></div>").join("")
+      + "</div>"
+      + '<div style="margin-top:10px"><button class="propose-btn" id="propose-btn" onclick="propose()">让 AI 提个归拢建议</button>'
+      + '<span style="font-size:12px;color:var(--muted);margin-left:10px">AI 只出建议；你勾选并点「批准」之前，台账一个字都不会改。</span></div></div>';
+  }
   html += '<div id="review"></div>';
   const act = TD.threads.filter((t) => t.status !== "done");
   const done = TD.threads.filter((t) => t.status === "done");
   html += act.map(tcardHtml).join("");
   if (done.length) {
-    html += '<div class="label" style="margin:18px 0 10px">已交付 · ' + done.length + "</div>" + done.map(tcardHtml).join("");
+    html += '<div class="label" style="margin:18px 0 10px">办完了 · ' + done.length + "</div>" + done.map(tcardHtml).join("");
   }
-  if (!TD.threads.length) html += '<div class="empty">还没有归拢出任何「事」。点上面的按钮跑一次归拢。</div>';
+  if (!TD.threads.length) html += '<div class="empty">还没有归拢出任何「事」。等有待归拢的会话时，在上面跑一次归拢建议。</div>';
   box.innerHTML = html;
 }
+function looseToggle() { LOOSE_OPEN = !LOOSE_OPEN; renderThreads(); }
 function tcardHtml(t) {
   const open = MEM_OPEN[t.id] ? "" : " style='display:none'";
   const mem = (t.members || []).map((m) => "<div>· " + escH(m.title) + ' <span style="color:var(--muted)">' + escH(m.agentId || "") + " · " + rel(m.lastActivityAt) + "</span></div>").join("");
   return '<div class="tcard' + (t.status === "done" ? " done" : "") + '">'
     + '<div class="thead">'
     + '<span class="tname">' + escH(t.name) + "</span>"
-    + '<button class="tdone-btn" onclick="tstatus(\\'' + t.id + '\\',\\'' + (t.status === "done" ? "active" : "done") + '\\')">' + (t.status === "done" ? "重新打开" : "标记交付") + "</button>"
+    + '<button class="tdone-btn" data-id="' + t.id + '" data-st="' + (t.status === "done" ? "active" : "done") + '" onclick="tstatus(this.dataset.id, this.dataset.st)">' + (t.status === "done" ? "其实还没办完" : "标为办完") + "</button>"
     + '<span class="tstat">最后碰它 ' + rel(t.lastTouched) + "</span>"
     + "</div>"
     + (t.parkedAt ? '<div class="trow"><span class="tl2">停在哪</span>' + escH(t.parkedAt) + "</div>" : "")
     + (t.next && t.next.length ? '<div class="trow tnext"><span class="tl2">还欠着</span>' + t.next.map(escH).join("；") + "</div>" : '<div class="trow"><span class="tl2">还欠着</span><span style="color:var(--muted)">无</span></div>')
-    + '<div class="tmem" onclick="tmem(\\'' + t.id + '\\')">来自 ' + t.memberCount + ' 个会话 ' + (MEM_OPEN[t.id] ? "▾" : "▸") + "</div>"
+    + '<div class="tmem" data-id="' + t.id + '" onclick="tmem(this.dataset.id)">' + (MEM_OPEN[t.id] ? "▾ " : "▸ ") + "看看是哪 " + t.memberCount + " 个会话</div>"
     + '<div class="tmem-list"' + open + ">" + mem + "</div>"
     + "</div>";
 }
@@ -256,25 +272,29 @@ async function tstatus(id, status) {
   await fetch(BASE() + "/threads/apply" + QS(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ops: [{ action: "status", id, status }] }) });
   loadThreads();
 }
-/* 归拢提议：拉提议 → 勾选 → 批准 */
+/* 归拢建议：拉建议 → 逐条核对（含具体会话名） → 勾选批准才落账 */
 let PROPOSALS = null;
 async function propose() {
   const btn = $("#propose-btn");
-  btn.disabled = true; btn.textContent = "归拢中，AI 正在读摘要……";
+  btn.disabled = true; btn.textContent = "AI 正在读这些会话的摘要……";
   try {
     const res = await fetch(BASE() + "/threads/propose" + QS(), { method: "POST" });
     const d = await res.json();
     if (d.error) { $("#review").innerHTML = '<div class="err">⚠ ' + escH(d.error) + "</div>"; return; }
     PROPOSALS = d.proposals || [];
     if (!PROPOSALS.length) { $("#review").innerHTML = '<div class="rv">' + escH(d.note || "没有需要归拢的会话") + "</div>"; return; }
-    $("#review").innerHTML = '<div class="rv"><div style="font-size:13px;margin-bottom:6px">AI 的归拢提议（' + PROPOSALS.length + ' 条），勾选你认可的：</div>'
+    const titleOf = {};
+    for (const s of (TD.unassigned || [])) titleOf[s.key] = s.title;
+    $("#review").innerHTML = '<div class="rv"><div style="font-size:13.5px;margin-bottom:2px"><b>AI 提了 ' + PROPOSALS.length + ' 条建议</b>，下面是它的理由和涉及的具体会话</div>'
+      + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">逐条核对，不认可的勾掉；点「批准」才落账，点「算了」就当没发生过。</div>'
       + PROPOSALS.map((p, i) => {
-        const target = p.action === "assign" ? "归入「" + escH(p.threadName) + "」" : "新建事卡「" + escH(p.name) + "」";
-        return '<label class="rv-item"><input type="checkbox" checked data-i="' + i + '"><span><b>' + target + "</b> · " + p.keys.length + ' 个会话 <span class="rv-reason">' + escH(p.reason) + "</span></span></label>";
+        const target = p.action === "assign" ? "归入已有事卡「" + escH(p.threadName) + "」" : "新建事卡「" + escH(p.name) + "」";
+        const titles = p.keys.map((k) => "<div>· " + escH(titleOf[k] || k) + "</div>").join("");
+        return '<label class="rv-item" style="align-items:flex-start"><input type="checkbox" checked data-i="' + i + '"><span style="flex:1"><b>' + target + "</b><span class='rv-reason'> —— " + escH(p.reason) + '</span><div style="margin-top:3px;font-size:12px;color:var(--muted)">' + titles + "</div></span></label>";
       }).join("")
-      + '<div class="rv-actions"><button class="rv-ok" onclick="applyProposals()">批准选中项</button><button class="rv-cancel" onclick="cancelProposals()">算了</button></div></div>';
+      + '<div class="rv-actions"><button class="rv-ok" onclick="applyProposals()">批准选中的建议</button><button class="rv-cancel" onclick="cancelProposals()">算了</button></div></div>';
   } finally {
-    btn.disabled = false; btn.textContent = "归拢未入账的会话";
+    btn.disabled = false; btn.textContent = "让 AI 提个归拢建议";
   }
 }
 async function applyProposals() {
