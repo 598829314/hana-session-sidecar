@@ -139,7 +139,7 @@ const SYSTEM_PROMPT = `你是「Session 旁录员」。你的职责是为一个 
 {
   "origin": "一句话说明会话为何开始（目的明确改变时才更新，否则保持稳定）",
   "narrative": "这一程：2~3 句连贯叙事，讲清这段时间会话做了什么、关键转折是什么、现在成了什么局面。像给同事发的一段工作交接，有因果有重点；不要罗列条目，不要复读时间线，每句不超过 40 字",
-  "progress": ["最多 12 条完整时间线，从早到晚排列，供详情查阅；每条尽量以 HH:MM 时刻开头（依据对话中出现的时间信息），一句话叙事该步骤做了什么；保留仍然成立的旧条目，追加新进展，可合并过时条目"],
+  "progress": ["最多 20 条时间线精选节点，从早到晚排列；每条尽量以 HH:MM 时刻开头（依据对话中出现的时间信息），一句话叙事该步骤做了什么；保留仍然成立的旧条目，追加新进展，可合并过时条目"],
   "outcome": "已形成的结果或产物（文件、结论、决策、修复），只说交付了什么，不复述过程；没有则为空字符串",
   "parkedAt": "此刻：一句话说明当前状态——正在推进什么，或停在哪个等待点。写状态本身，不要复述最后一个动作的细节过程，不要以「停在」开头",
   "next": ["最多 3 条，后续最可能继续的方向或明确待办，按优先级排列"],
@@ -431,7 +431,7 @@ export default class SessionSidecarPlugin {
         if (!m) throw new Error("LLM 未返回 JSON: " + text.slice(0, 120));
         const state = JSON.parse(m[0]);
         // 字段兜底
-        state.progress = Array.isArray(state.progress) ? state.progress.map(String).slice(0, 12) : [];
+        state.progress = Array.isArray(state.progress) ? state.progress.map(String).slice(0, 20) : [];
         state.next = Array.isArray(state.next) ? state.next.map(String).slice(0, 3) : [];
         if (!state.narrative && state.parkedAt) state.narrative = String(state.parkedAt || "");
         state.narrative = String(state.narrative || "");

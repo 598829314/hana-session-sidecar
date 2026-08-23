@@ -109,6 +109,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .field-count { min-width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; border-radius: 999px; background: var(--accent-soft); font-size: 9.5px; font-weight: 700; color: var(--accent-ink); }
 .field-body { padding: 1px 16px 17px 19px; }
 .field-text { color: var(--ink-2); overflow-wrap: anywhere; }
+.tl-scroll { max-height: 240px; overflow-y: auto; border: 1px solid var(--line-soft); border-radius: 10px; padding: 6px 10px 6px 2px; background: rgba(0,0,0,.015); }
 .tl { list-style: none; }
 .tl li { position: relative; padding: 4px 0 4px 16px; overflow-wrap: anywhere; color: var(--ink-2); }
 .tl li::before { content: ""; position: absolute; left: 0; top: 13px; width: 7px; height: 2px; border-radius: 1px; background: var(--ink-4); }
@@ -180,11 +181,9 @@ var FIELDS_MAIN = [
   { key: "parkedAt",  name: "此刻",   type: "text", emptyText: "暂无记录" },
   { key: "narrative", name: "这一程", type: "text story", emptyText: "生成中，稍后自动补上" },
   { key: "outcome",   name: "成果",   type: "text", emptyText: "尚无成果，会话仍在推进" },
-  { key: "next",      name: "下一步", type: "list",  emptyText: "暂无后续事项" }
-];
-var FIELDS_MORE = [
-  { key: "progress", name: "完整时间线", type: "list", emptyText: "暂无进展记录" },
-  { key: "notes",    name: "备注",       type: "notes", emptyText: "暂无人工备注" }
+  { key: "next",      name: "下一步", type: "list",  emptyText: "暂无后续事项" },
+  { key: "progress", name: "时间线",  type: "list", emptyText: "暂无进展记录" },
+  { key: "notes",    name: "备注",    type: "notes", emptyText: "暂无人工备注" }
 ];
 
 function esc(s) {
@@ -207,7 +206,7 @@ function shortPath(p) { p = String(p || ""); return p.length > 46 ? "…" + p.sl
 function render(data) {
   var app = document.getElementById("app");
   var scrollY = window.scrollY || 0;
-  var moreOpen = !!(document.querySelector("details.more") || {}).open;
+  var tlScroll = (document.querySelector(".tl-scroll") || {}).scrollTop || 0;
   if (!data.current) {
     app.removeAttribute("data-status");
     app.innerHTML =
@@ -234,7 +233,7 @@ function render(data) {
         '<div class="pending-line"><span class="led"></span>正在生成此会话的旁录，约 20 秒…</div>' +
         '<div class="skel"><i></i><i></i><i></i><i></i></div>' +
       "</div>" + renderProbe(data);
-    afterRender(scrollY);
+    afterRender(scrollY, tlScroll);
     return;
   }
   var st = STATUS_META[c.state.status] || STATUS_META.active;
@@ -249,12 +248,9 @@ function render(data) {
     "</section>" +
     '<div class="fields">' +
       FIELDS_MAIN.map(function (f) { return renderField(f, c); }).join("") +
-      '<details class="more"' + (moreOpen ? " open" : "") + '><summary><span class="more-name">详情</span><span class="more-sub">时间线 / 备注</span><span class="more-arrow">▸</span></summary><div class="more-body">' +
-        FIELDS_MORE.map(function (f) { return renderField(f, c); }).join("") +
-      "</div></details>" +
     "</div>" +
     renderProbe(data);
-  afterRender(scrollY);
+  afterRender(scrollY, tlScroll);
 }
 
 function renderMasthead(data) {
@@ -285,13 +281,15 @@ function renderField(f, c) {
     var arr = c.state[f.key] || [];
     count = arr.length ? '<span class="field-count">' + arr.length + "</span>" : "";
     var cls = f.key === "progress" ? "tl tl-progress" : f.key === "next" ? "tl tl-next" : "tl";
+    var wrapOpen = f.key === "progress" ? '<div class="tl-scroll">' : "";
+    var wrapClose = f.key === "progress" ? "</div>" : "";
     body = arr.length
-      ? '<ul class="' + cls + '">' + arr.map(function (t) {
+      ? wrapOpen + '<ul class="' + cls + '">' + arr.map(function (t) {
           if (f.key !== "progress") return "<li>" + esc(t) + "</li>";
           var m = String(t).match(/^(\[?\d{1,2}:\d{2}\]?)\s+(.+)$/);
           if (!m) return "<li>" + esc(t) + "</li>";
           return '<li><span class="tl-ts">' + esc(m[1].replace(/^\[|\]$/g, "")) + '</span>' + esc(m[2]) + "</li>";
-        }).join("") + "</ul>"
+        }).join("") + "</ul>" + wrapClose
       : '<div class="empty-hint">' + f.emptyText + "</div>";
   } else if (f.type === "notes") {
     var ns = c.notes || [];
@@ -363,8 +361,9 @@ function hostResize() {
     }, "*");
   } catch (e) {}
 }
-function afterRender(scrollY) {
+function afterRender(scrollY, tlScroll) {
   try { window.scrollTo(0, scrollY); } catch (e) {}
+  try { var ts = document.querySelector(".tl-scroll"); if (ts && tlScroll) ts.scrollTop = tlScroll; } catch (e) {}
   hostResize();
 }
 function load() {
