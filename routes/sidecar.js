@@ -13,7 +13,7 @@ function isChatSessionPath(sp) {
   if (!sp.endsWith(".jsonl")) return false;
   if (sp.includes("/archived/") || sp.includes("\\archived\\")) return false;
   if (sp.includes("/activity/") || sp.includes("\\activity\\")) return false;
-  return /agents[\/][^\/]+[\/]sessions[\/][^\/]+\.jsonl$/.test(sp);
+  return /agents[\\/][^\\/]+[\\/]sessions[\\/][^\\/]+\.jsonl$/.test(sp);
 }
 function agentFromPath(sp) {
   const m = String(sp || "").match(/agents[\\\/]([^\\\/]+)[\\\/]sessions[\\\/]/);
