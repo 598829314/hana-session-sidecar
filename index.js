@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 const HOME = process.env.HANA_HOME || path.join(process.env.HOME || process.env.USERPROFILE, ".hanako");
 const AGENTS_DIR = path.join(HOME, "agents");
@@ -10,6 +13,29 @@ const STORE_DIR = "sidecars";
 
 function keyOf(sessionPath) {
   return crypto.createHash("sha1").update(String(sessionPath)).digest("hex").slice(0, 16);
+}
+
+// ── 记忆系统滚动摘要桥接：sessionPath → manifest DB → sess_id → summaries/<sess_id>.json ──
+// 任一环节失败都静默降级返回 null，旁录照常从原始对话生成。
+function readRollingSummary(agentId, sessionPath) {
+  try {
+    const { DatabaseSync } = require("node:sqlite");
+    const dbPath = path.join(HOME, "session-manifest.db");
+    if (!fs.existsSync(dbPath)) return null;
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    let sessId = null;
+    try {
+      const row = db.prepare("SELECT session_id FROM session_manifests WHERE current_locator_path = ?").get(String(sessionPath));
+      sessId = row?.session_id || null;
+    } finally { db.close(); }
+    if (!sessId) return null;
+    const p = path.join(AGENTS_DIR, String(agentId || ""), "memory", "summaries", `${sessId}.json`);
+    if (!fs.existsSync(p)) return null;
+    const j = JSON.parse(fs.readFileSync(p, "utf-8"));
+    return typeof j.summary === "string" && j.summary.trim()
+      ? { summary: j.summary, updatedAt: j.updated_at || "" }
+      : null;
+  } catch { return null; }
 }
 
 function isChatSessionPath(sp) {
@@ -92,7 +118,11 @@ function extractTranscript(filePath, maxChars) {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     const body = e.text.length > 600 ? e.text.slice(0, 600) + " …" : e.text;
-    const line = `[${e.role}] ${body}`;
+    let tsTag = "";
+    try {
+      if (e.ts) tsTag = new Date(e.ts).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
+    } catch { /* ignore */ }
+    const line = `[${tsTag ? tsTag + " " : ""}${e.role}] ${body}`;
     if (acc + line.length > maxChars && tail.length >= 6) break;
     tail.unshift(line);
     acc += line.length;
@@ -103,19 +133,20 @@ function extractTranscript(filePath, maxChars) {
 
 const SYSTEM_PROMPT = `你是「Session 旁录员」。你的职责是为一个 AI 助手会话维护一份结构化状态档案，让主人无需翻阅对话，就能知道这个会话为何开始、做了什么、形成了什么结果、停在哪里、以及后续可能继续什么。
 
-输入会给你三部分：之前的状态档案（JSON，可能为空）、会话缘起（第一条用户消息）、最近的对话摘录。
+输入会给你四部分：之前的状态档案（JSON，可能为空）、记忆系统滚动摘要（对会话早期历史的浓缩，可能缺失或滞后）、会话缘起（第一条用户消息）、最近的对话摘录（带时刻的最新细节）。滚动摘要与摘录冲突时，以摘录为准。
 
 请输出更新后的状态档案，只输出一个 JSON 对象，不要输出任何其他内容。字段定义：
 {
   "origin": "一句话说明会话为何开始（目的明确改变时才更新，否则保持稳定）",
-  "progress": ["最多 8 条，每条一句话概括一个已完成的关键步骤；保留仍然成立的旧条目，追加新进展，可合并过时条目"],
-  "outcome": "已形成的结果或产物（文件、结论、决策、修复）；没有则为空字符串",
-  "parkedAt": "当前停在哪里：最后正在做的事、等待的事项或中断点",
-  "next": ["最多 4 条，后续最可能继续的方向或明确待办"],
+  "narrative": "这一程：2~3 句连贯叙事，讲清这段时间会话做了什么、关键转折是什么、现在成了什么局面。像给同事发的一段工作交接，有因果有重点；不要罗列条目，不要复读时间线，每句不超过 40 字",
+  "progress": ["最多 12 条完整时间线，从早到晚排列，供详情查阅；每条尽量以 HH:MM 时刻开头（依据对话中出现的时间信息），一句话叙事该步骤做了什么；保留仍然成立的旧条目，追加新进展，可合并过时条目"],
+  "outcome": "已形成的结果或产物（文件、结论、决策、修复），只说交付了什么，不复述过程；没有则为空字符串",
+  "parkedAt": "此刻：一句话说明当前状态——正在推进什么，或停在哪个等待点。写状态本身，不要复述最后一个动作的细节过程，不要以「停在」开头",
+  "next": ["最多 3 条，后续最可能继续的方向或明确待办，按优先级排列"],
   "status": "active（正在推进）/ parked（搁置等待外部输入）/ done（目标已达成）"
 }
 
-要求：严格基于对话事实，不编造不存在的内容；每条不超过 60 字；全部使用中文；progress 与 next 必须是字符串数组。`;
+要求：严格基于对话事实与滚动摘要，不编造不存在的内容；对话中没有可靠时间信息的条目不写时刻；全部使用中文；progress 与 next 必须是字符串数组；narrative 是给人读的主体，必须比时间线更有提炼和取舍。`;
 
 function renderMarkdown(rec) {
   const s = rec.state || {};
@@ -130,14 +161,17 @@ function renderMarkdown(rec) {
   lines.push(`## 缘起`);
   lines.push(s.origin || "（尚无）");
   lines.push("");
-  lines.push(`## 进展`);
+  lines.push(`## 这一程`);
+  lines.push(s.narrative || "（尚无）");
+  lines.push("");
+  lines.push(`## 进展时间线`);
   if (s.progress?.length) s.progress.forEach((p, i) => lines.push(`${i + 1}. ${p}`));
   else lines.push("（尚无）");
   lines.push("");
   lines.push(`## 结果`);
   lines.push(s.outcome || "（尚无）");
   lines.push("");
-  lines.push(`## 停在`);
+  lines.push(`## 此刻`);
   lines.push(s.parkedAt || "（尚无）");
   lines.push("");
   lines.push(`## 接下来`);
@@ -251,7 +285,10 @@ export default class SessionSidecarPlugin {
       debounceMs: Math.max(3, Number(config.get("debounceSec")) || 12) * 1000,
       minIntervalMs: Math.max(10, Number(config.get("minIntervalSec")) || 45) * 1000,
       maxExcerpt: Math.max(2000, Number(config.get("maxExcerptChars")) || 9000),
-      debug: config.get("debugEvents") === true
+      debug: config.get("debugEvents") === true,
+      genEndpoint: String(config.get("genEndpoint") || "").trim(),
+      genApiKey: String(config.get("genApiKey") || ""),
+      genModel: String(config.get("genModel") || "").trim()
     });
 
     // ── 调试事件日志：只记每种事件类型的首次出现，防刷屏 ──
@@ -321,6 +358,43 @@ export default class SessionSidecarPlugin {
     };
 
     // ── LLM 生成 ──
+    // ── LLM 调用：优先自定义 OpenAI 兼容端点，留空则走宿主默认模型 ──
+    const sampleText = async (systemPrompt, userContent, maxTokens) => {
+      const c = cfg();
+      if (!c.genEndpoint) {
+        const res = await bus.request("model:sample-text", {
+          systemPrompt,
+          messages: [{ role: "user", content: userContent }],
+          maxTokens,
+          temperature: 0.2,
+          pluginId
+        });
+        return res?.text || res?.content || "";
+      }
+      const url = c.genEndpoint.replace(/\/+$/, "") + "/chat/completions";
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(c.genApiKey ? { Authorization: `Bearer ${c.genApiKey}` } : {})
+        },
+        body: JSON.stringify({
+          model: c.genModel || "default",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userContent }
+          ],
+          max_tokens: maxTokens,
+          temperature: 0.2,
+          chat_template_kwargs: { enable_thinking: false }
+        }),
+        signal: AbortSignal.timeout(120000)
+      });
+      if (!r.ok) throw new Error(`自定义生成端点 HTTP ${r.status}`);
+      const j = await r.json();
+      return j?.choices?.[0]?.message?.content || "";
+    };
+
     const regenerate = async (ent, k) => {
       const c = cfg();
       ent.generating = true;
@@ -335,9 +409,13 @@ export default class SessionSidecarPlugin {
           ent.lastMsgCount = tr.messageCount;
           return;
         }
+        const rs = readRollingSummary(ent.agentId, ent.sessionPath);
         const userPrompt = [
           "【之前的状态档案】",
           prev?.state ? JSON.stringify(prev.state, null, 2) : "（空，这是第一次生成）",
+          "",
+          "【记忆系统滚动摘要】（会话早期历史浓缩，可能滞后）",
+          rs ? rs.summary : "（无）",
           "",
           "【会话缘起（第一条用户消息）】",
           tr.firstUser || "（未获取到）",
@@ -348,20 +426,15 @@ export default class SessionSidecarPlugin {
           "请输出更新后的状态档案 JSON。"
         ].join("\n");
 
-        const res = await bus.request("model:sample-text", {
-          systemPrompt: SYSTEM_PROMPT,
-          messages: [{ role: "user", content: userPrompt }],
-          maxTokens: 1500,
-          temperature: 0.2,
-          pluginId
-        });
-        const text = res?.text || res?.content || "";
+        const text = (await sampleText(SYSTEM_PROMPT, userPrompt, 1500)).replace(/<think>[\s\S]*?<\/think>/g, "");
         const m = text.match(/\{[\s\S]*\}/);
         if (!m) throw new Error("LLM 未返回 JSON: " + text.slice(0, 120));
         const state = JSON.parse(m[0]);
         // 字段兜底
-        state.progress = Array.isArray(state.progress) ? state.progress.map(String).slice(0, 8) : [];
-        state.next = Array.isArray(state.next) ? state.next.map(String).slice(0, 4) : [];
+        state.progress = Array.isArray(state.progress) ? state.progress.map(String).slice(0, 12) : [];
+        state.next = Array.isArray(state.next) ? state.next.map(String).slice(0, 3) : [];
+        if (!state.narrative && state.parkedAt) state.narrative = String(state.parkedAt || "");
+        state.narrative = String(state.narrative || "");
         if (!["active", "parked", "done"].includes(state.status)) state.status = "active";
         for (const f of ["origin", "outcome", "parkedAt"]) state[f] = String(state[f] || "");
 

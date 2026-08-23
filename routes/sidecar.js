@@ -49,6 +49,13 @@ h1 { font-size: 22px; font-weight: 650; letter-spacing: .02em; }
   background: var(--card); border: 1px solid var(--border); border-radius: 14px;
   padding: 18px 20px; margin-bottom: 16px;
 }
+.pgroup { margin-bottom: 30px; }
+.pgroup-head {
+  display: flex; align-items: baseline; gap: 10px; margin: 6px 2px 12px;
+  border-bottom: 1px solid var(--border); padding-bottom: 7px;
+}
+.pgroup-name { font-size: 15px; font-weight: 650; letter-spacing: .02em; }
+.pgroup-stat { color: var(--muted); font-size: 11.5px; }
 .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .badge { font-size: 11px; padding: 2px 9px; border-radius: 99px; font-weight: 600; }
 .badge.active { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
@@ -64,6 +71,13 @@ ul.plain li { padding-left: 14px; position: relative; font-size: 13.5px; margin:
 ul.plain li::before { content: "·"; position: absolute; left: 2px; color: var(--accent); font-weight: 700; }
 ol.plain { padding-left: 20px; font-size: 13.5px; }
 ol.plain li { margin: 2px 0; }
+.tl-ts { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--text-muted); margin-right: 7px; }
+.narrative { line-height: 1.9; font-size: 14px; }
+details.tl-more { margin: 4px 0; }
+details.tl-more summary { cursor: pointer; list-style: none; font-size: 12.5px; color: var(--text-muted); padding: 4px 0; user-select: none; }
+details.tl-more summary::-webkit-details-marker { display: none; }
+details.tl-more summary::before { content: "▸ "; }
+details.tl-more[open] summary::before { content: "▾ "; }
 .note { font-size: 12.5px; color: var(--muted); }
 .note b { color: var(--fg); font-weight: 600; }
 .empty { text-align: center; color: var(--muted); padding: 64px 0; font-size: 14px; }
@@ -104,9 +118,31 @@ function render(data) {
     $("#list").innerHTML = '<div class="empty">还没有旁录。让任意会话活动一会儿，第一份档案会自动出现。</div>';
     return;
   }
-  $("#list").innerHTML = data.sessions.map((r) => {
+  const groups = new Map();
+  for (const r of data.sessions) {
+    const g = r.projectName || "未分组";
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(r);
+  }
+  const ordered = (data.projects || []).map((p) => p.name).filter((n) => groups.has(n));
+  for (const n of groups.keys()) if (n !== "未分组" && !ordered.includes(n)) ordered.push(n);
+  if (groups.has("未分组")) ordered.push("未分组");
+  let html = "";
+  for (const name of ordered) {
+    const list = groups.get(name);
+    const act = list.filter((r) => r.state?.status === "active").length;
+    html += '<div class="pgroup"><div class="pgroup-head"><span class="pgroup-name">' + escH(name) + '</span><span class="pgroup-stat">' + list.length + ' 份' + (act ? ' · ' + act + ' 进行中' : "") + '</span></div>'
+      + list.map(cardHtml).join("") + "</div>";
+  }
+  $("#list").innerHTML = html;
+}
+function cardHtml(r) {
     const st = STATUS[r.state?.status] || STATUS.active;
-    const prog = (r.state?.progress || []).map((p) => "<li>" + escH(p) + "</li>").join("");
+    const prog = (r.state?.progress || []).map((p) => {
+      const m = String(p).match(/^(\\[?\\d{1,2}:\\d{2}\\]?)\\s+(.+)$/);
+      if (!m) return "<li>" + escH(p) + "</li>";
+      return '<li><span class="tl-ts">' + escH(m[1].replace(/^\\[|\\]$/g, "")) + "</span>" + escH(m[2]) + "</li>";
+    }).join("");
     const next = (r.state?.next || []).map((n) => "<li>" + escH(n) + "</li>").join("");
     const notes = (r.notes || []).map((n) => '<div class="note"><b>[' + escH(n.kind) + "]</b> " + escH(n.text) + "</div>").join("");
     return '<div class="card">'
@@ -117,15 +153,15 @@ function render(data) {
       + '<span style="flex:1"></span>'
       + '<button class="rf" onclick="refresh(\\'' + r.key + '\\')">重新生成</button>'
       + "</div>"
-      + sec("缘起", '<div class="body">' + escH(r.state?.origin || "（尚无）") + "</div>")
-      + (prog ? sec("进展", '<ol class="plain">' + prog + "</ol>") : "")
-      + (r.state?.outcome ? sec("结果", '<div class="body">' + escH(r.state.outcome) + "</div>") : "")
-      + sec("停在", '<div class="body">' + escH(r.state?.parkedAt || "（尚无）") + "</div>")
+      + (r.state?.narrative ? sec("这一程", '<div class="body narrative">' + escH(r.state.narrative) + "</div>") : "")
+      + sec("此刻", '<div class="body">' + escH(r.state?.parkedAt || "（尚无）") + "</div>")
+      + (prog ? '<details class="tl-more"><summary>完整时间线 · ' + (r.state?.progress || []).length + ' 条</summary><ol class="plain">' + prog + "</ol></details>" : "")
+      + (r.state?.outcome ? sec("成果", '<div class="body">' + escH(r.state.outcome) + "</div>") : "")
       + (next ? sec("接下来", '<ul class="plain">' + next + "</ul>") : "")
       + (notes ? sec("备注", notes) : "")
+      + '<details class="tl-more"><summary>缘起</summary><div class="body">' + escH(r.state?.origin || "（尚无）") + "</div></details>"
       + (r.gen?.lastError ? '<div class="err">⚠ 上次生成失败：' + escH(r.gen.lastError) + "</div>" : "")
       + "</div>";
-  }).join("");
 }
 function sec(label, inner) { return '<div class="section"><div class="label">' + label + "</div>" + inner + "</div>"; }
 async function refresh(key) {
@@ -154,8 +190,45 @@ export default function (app, ctx) {
     return out;
   };
 
+// ── 项目分组（复用宿主原生项目系统：~/.hanako/user/session-projects.json + 各 agent 的 session-meta.json）──
+const HANAKO_ROOT = path.join(process.env.HOME || "", ".hanako");
+let _projCache = { catalog: null, catalogMtime: 0, metaMaps: {}, metaMtimes: {} };
+function projectCatalog() {
+  try {
+    const p = path.join(HANAKO_ROOT, "user", "session-projects.json");
+    const mt = fs.statSync(p).mtimeMs;
+    if (_projCache.catalog && _projCache.catalogMtime === mt) return _projCache.catalog;
+    const d = JSON.parse(fs.readFileSync(p, "utf-8"));
+    const byId = {};
+    for (const pr of d.projects || []) byId[pr.id] = pr;
+    _projCache.catalog = { byId, order: (d.projects || []).map((p) => p.id) };
+    _projCache.catalogMtime = mt;
+    return _projCache.catalog;
+  } catch { return { byId: {}, order: [] }; }
+}
+function projectIdOfSession(sessionPath) {
+  try {
+    const dir = path.dirname(sessionPath);
+    const base = path.basename(sessionPath);
+    const metaPath = path.join(dir, "session-meta.json");
+    const mt = fs.statSync(metaPath).mtimeMs;
+    if (!_projCache.metaMaps[metaPath] || _projCache.metaMtimes[metaPath] !== mt) {
+      _projCache.metaMaps[metaPath] = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+      _projCache.metaMtimes[metaPath] = mt;
+    }
+    return _projCache.metaMaps[metaPath][base]?.projectId || null;
+  } catch { return null; }
+}
+
   app.get("/sidecar/data", (c) => {
-    return c.json({ sessions: listSidecars(), generatedAt: new Date().toISOString() });
+    const sessions = listSidecars();
+    const cat = projectCatalog();
+    for (const r of sessions) {
+      const pid = r.sessionPath ? projectIdOfSession(r.sessionPath) : null;
+      r.projectId = pid;
+      r.projectName = pid ? (cat.byId[pid]?.name || null) : null;
+    }
+    return c.json({ sessions, projects: (cat.order || []).map((id) => ({ id, name: cat.byId[id]?.name || id })), generatedAt: new Date().toISOString() });
   });
 
   app.post("/sidecar/refresh", async (c) => {
@@ -237,14 +310,11 @@ export default function (app, ctx) {
   });
 
   // 挂件页面：设计师模板（routes/widget.html），数据接线在模板内完成
-  let widgetHtmlCache = null;
+  // 不做模块级缓存——每次直接读盘，避免热更新后服务旧版模板（19KB，开销可忽略）
   app.get("/widget", (c) => {
     try {
-      if (!widgetHtmlCache) {
-        const tpl = path.join(path.dirname(fileURLToPath(import.meta.url)), "widget.html");
-        widgetHtmlCache = fs.readFileSync(tpl, "utf-8");
-      }
-      return c.html(widgetHtmlCache);
+      const tpl = path.join(path.dirname(fileURLToPath(import.meta.url)), "widget.html");
+      return c.html(fs.readFileSync(tpl, "utf-8"));
     } catch (e) {
       return c.text("widget template missing: " + e.message, 500);
     }

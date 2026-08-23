@@ -80,7 +80,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .wordmark { font-size: 16px; font-weight: 700; letter-spacing: .06em; }
 .wordmark .dot-star { color: var(--accent); margin-right: 6px; font-size: 13px; vertical-align: 1px; }
 .wordmark .en { margin-left: 7px; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; font-size: 9px; font-weight: 500; letter-spacing: .2em; color: var(--ink-3); }
-.focus-tag { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 2.5px 9px; border-radius: 999px; background: var(--st-done-bg); font-size: 9.5px; letter-spacing: .06em; color: var(--st-done); white-space: nowrap; }
+.focus-tag { display: inline-flex; align-items: center; gap: 5px; padding: 2.5px 9px; border-radius: 999px; background: var(--st-done-bg); font-size: 9.5px; letter-spacing: .06em; color: var(--st-done); white-space: nowrap; }
 .focus-tag .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .focus-tag.unfocused { background: var(--st-parked-bg); color: var(--st-parked); }
 .session { margin: 0 10px; padding: 14px 14px 13px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 14px; box-shadow: var(--shadow); }
@@ -90,13 +90,17 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 @keyframes ledPulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 .status-pill .status-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; color: var(--st); }
 .session-title { font-size: 16.5px; font-weight: 700; line-height: 1.5; letter-spacing: .01em; overflow-wrap: anywhere; }
-.session-meta { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 3px 0; font-size: 10px; letter-spacing: .03em; color: var(--ink-3); }
+.session-meta { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 3px 0; font-size: 10.5px; letter-spacing: .03em; color: var(--ink-2); }
+.session-meta .meta-agent { font-weight: 650; color: var(--ink); }
 .session-meta span + span::before { content: "·"; margin: 0 6px; color: var(--ink-4); }
+.regen { margin-left: auto; width: 23px; height: 23px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; color: var(--ink-3); font-size: 13px; transition: color .15s, background .15s, transform .45s; }
+.regen:hover { color: var(--accent); background: var(--accent-soft); }
+.regen.spin { transform: rotate(360deg); color: var(--accent); }
 .unfocused-note { margin-top: 9px; display: inline-block; padding: 2px 9px; border-radius: 999px; border: 1px dashed var(--dash); font-size: 9.5px; letter-spacing: .04em; color: var(--ink-3); }
 #app[data-status="active"] { --st: var(--st-active); --st-bg: var(--st-active-bg); }
 #app[data-status="parked"] { --st: var(--st-parked); --st-bg: var(--st-parked-bg); }
 #app[data-status="done"]   { --st: var(--st-done);   --st-bg: var(--st-done-bg); }
-.fields { padding: 2px 0 0; }
+.fields { margin: 10px 10px 0; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
 .field { border-bottom: 1px solid var(--line-soft); }
 .field:last-child { border-bottom: 0; }
 .field-head { display: flex; align-items: center; gap: 9px; padding: 15px 16px 8px; }
@@ -106,11 +110,28 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .field-body { padding: 1px 16px 17px 19px; }
 .field-text { color: var(--ink-2); overflow-wrap: anywhere; }
 .tl { list-style: none; }
-.tl li { position: relative; padding: 4px 0 4px 16px; overflow-wrap: anywhere; }
+.tl li { position: relative; padding: 4px 0 4px 16px; overflow-wrap: anywhere; color: var(--ink-2); }
 .tl li::before { content: ""; position: absolute; left: 0; top: 13px; width: 7px; height: 2px; border-radius: 1px; background: var(--ink-4); }
 .tl-progress li:last-child::before { background: var(--accent); width: 9px; }
+.tl-next { counter-reset: nexti; }
+.tl-next li { padding-left: 24px; }
+.tl-next li::before { counter-increment: nexti; content: counter(nexti); width: 15px; height: 15px; top: 5px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+.tl-ts { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; letter-spacing: .02em; color: var(--ink-4); margin-right: 6px; vertical-align: 1px; }
+.tl-progress li:last-child .tl-ts { color: var(--accent-ink); }
 .empty-hint { border: 1px dashed var(--dash); border-radius: 10px; padding: 9px 12px; font-size: 10.5px; letter-spacing: .03em; color: var(--ink-3); display: flex; align-items: center; gap: 8px; }
 .empty-hint::before { content: ""; width: 4px; height: 4px; flex: none; border-radius: 50%; background: var(--ink-4); }
+.more { border-bottom: 0; }
+.more summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 9px; padding: 15px 16px 13px; user-select: none; transition: background .15s; }
+.more summary:hover { background: var(--accent-soft); }
+.more summary::-webkit-details-marker { display: none; }
+.more summary::before { content: ""; width: 3px; height: 13px; flex: none; border-radius: 2px; background: var(--accent); }
+.more-name { font-family: Georgia, "Times New Roman", "Songti SC", "STSong", "Noto Serif CJK SC", "Noto Serif SC", "SimSun", serif; font-size: 13.5px; font-weight: 700; letter-spacing: .26em; color: var(--ink); }
+.more-sub { font-size: 10px; letter-spacing: .08em; color: var(--ink-3); }
+.more-arrow { margin-left: auto; font-size: 12px; color: var(--accent); display: inline-block; transition: transform .18s; }
+.more[open] .more-arrow { transform: rotate(90deg); color: var(--accent); }
+.more[open] summary { padding-bottom: 8px; }
+.more-body { background: transparent; }
+.field-text.story { font-size: 12.5px; line-height: 1.85; color: var(--ink); border-left: 2px solid var(--accent-soft); padding-left: 10px; }
 .note { padding: 8px 0; }
 .note + .note { border-top: 1px solid var(--line-soft); }
 .note-kind { display: inline-block; padding: 1px 8px; margin-right: 7px; border-radius: 999px; background: var(--accent-soft); font-size: 9px; font-weight: 600; letter-spacing: .08em; color: var(--accent-ink); vertical-align: 1px; }
@@ -131,6 +152,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .void-title { font-size: 14px; font-weight: 700; letter-spacing: .12em; color: var(--ink-2); }
 .void-sub { margin-top: 7px; font-size: 10.5px; color: var(--ink-3); }
 .probe { padding: 10px 16px 12px; font-size: 9px; letter-spacing: .02em; color: var(--ink-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 420px) { .probe { white-space: normal; word-break: break-all; line-height: 1.7; } }
 .probe b { font-weight: 400; color: var(--ink-3); }
 @media (max-width: 230px) {
   .wordmark .en { display: none; }
@@ -153,13 +175,16 @@ var params = new URLSearchParams(location.search);
 document.documentElement.dataset.theme = params.get("hana-theme") === "dark" ? "dark" : "light";
 
 var STATUS_META = { active: { label: "进行中" }, parked: { label: "已搁置" }, done: { label: "已完成" } };
-var FIELDS = [
-  { key: "origin",   name: "缘起",   type: "text" },
-  { key: "progress", name: "进展",   type: "list", emptyText: "暂无进展记录" },
-  { key: "outcome",  name: "结果",   type: "text", emptyText: "尚无结果，会话仍在推进" },
-  { key: "parkedAt", name: "停在",   type: "text" },
-  { key: "next",     name: "接下来", type: "list", emptyText: "暂无后续事项" },
-  { key: "notes",    name: "备注",   type: "notes", emptyText: "暂无人工备注" }
+var FIELDS_MAIN = [
+  { key: "origin",    name: "缘起",   type: "text", emptyText: "暂无记录" },
+  { key: "parkedAt",  name: "此刻",   type: "text", emptyText: "暂无记录" },
+  { key: "narrative", name: "这一程", type: "text story", emptyText: "生成中，稍后自动补上" },
+  { key: "outcome",   name: "成果",   type: "text", emptyText: "尚无成果，会话仍在推进" },
+  { key: "next",      name: "下一步", type: "list",  emptyText: "暂无后续事项" }
+];
+var FIELDS_MORE = [
+  { key: "progress", name: "完整时间线", type: "list", emptyText: "暂无进展记录" },
+  { key: "notes",    name: "备注",       type: "notes", emptyText: "暂无人工备注" }
 ];
 
 function esc(s) {
@@ -182,6 +207,7 @@ function shortPath(p) { p = String(p || ""); return p.length > 46 ? "…" + p.sl
 function render(data) {
   var app = document.getElementById("app");
   var scrollY = window.scrollY || 0;
+  var moreOpen = !!(document.querySelector("details.more") || {}).open;
   if (!data.current) {
     app.removeAttribute("data-status");
     app.innerHTML =
@@ -218,10 +244,15 @@ function render(data) {
     '<section class="session">' +
       '<div class="status-pill"><span class="led"></span><span class="status-label">' + st.label + "</span></div>" +
       '<h1 class="session-title serif">' + esc(c.title || "未命名会话") + "</h1>" +
-      '<div class="session-meta"><span>' + esc(c.agentId || "") + "</span><span>" + (c.messageCount || 0) + " 条消息</span><span>活跃于 " + relTime(c.lastActivityAt) + "</span></div>" +
+      '<div class="session-meta"><span class="meta-agent">' + esc(c.agentId || "") + "</span><span>" + (c.messageCount || 0) + " 条消息</span><span>最后活跃 " + relTime(c.lastActivityAt) + "</span></div>" +
       (data.focused ? "" : '<span class="unfocused-note">未跟随到当前会话 · 显示最近活跃</span>') +
     "</section>" +
-    '<div class="fields">' + FIELDS.map(function (f) { return renderField(f, c); }).join("") + "</div>" +
+    '<div class="fields">' +
+      FIELDS_MAIN.map(function (f) { return renderField(f, c); }).join("") +
+      '<details class="more"' + (moreOpen ? " open" : "") + '><summary><span class="more-name">详情</span><span class="more-sub">时间线 / 备注</span><span class="more-arrow">▸</span></summary><div class="more-body">' +
+        FIELDS_MORE.map(function (f) { return renderField(f, c); }).join("") +
+      "</div></details>" +
+    "</div>" +
     renderProbe(data);
   afterRender(scrollY);
 }
@@ -230,21 +261,37 @@ function renderMasthead(data) {
   var f = data.focused;
   return '<header class="masthead">' +
     '<span class="wordmark serif"><span class="dot-star">✳</span>旁录<span class="en">SIDECAR</span></span>' +
+    (data.current ? '<button class="regen" id="regenBtn" title="重新生成这份旁录" onclick="regen()">⟳</button>' : '<span style="margin-left:auto"></span>') +
     '<span class="focus-tag ' + (f ? "" : "unfocused") + '"><span class="dot"></span>' + (f ? "跟随中" : "最近活跃") + "</span>" +
   "</header>";
+}
+var lastData = null;
+function regen() {
+  if (!lastData || !lastData.current || !lastData.current.key) return;
+  var btn = document.getElementById("regenBtn");
+  if (btn) { btn.classList.add("spin"); setTimeout(function () { var b = document.getElementById("regenBtn"); if (b) b.classList.remove("spin"); }, 1200); }
+  var url = location.pathname.replace(/\/widget$/, "/sidecar/refresh") + (location.search || "");
+  fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: lastData.current.key }) })
+    .then(function () { setTimeout(load, 3500); })
+    .catch(function () {});
 }
 
 function renderField(f, c) {
   var count = "", body = "";
-  if (f.type === "text") {
+  if (f.type && f.type.indexOf("text") === 0) {
     var v = c.state[f.key];
-    body = v ? '<div class="field-text">' + esc(v) + "</div>" : '<div class="empty-hint">' + (f.emptyText || "暂无记录") + "</div>";
+    body = v ? '<div class="field-text ' + esc(f.type.split(" ")[1] || "") + '">' + esc(v) + "</div>" : '<div class="empty-hint">' + (f.emptyText || "暂无记录") + "</div>";
   } else if (f.type === "list") {
     var arr = c.state[f.key] || [];
     count = arr.length ? '<span class="field-count">' + arr.length + "</span>" : "";
     var cls = f.key === "progress" ? "tl tl-progress" : f.key === "next" ? "tl tl-next" : "tl";
     body = arr.length
-      ? '<ul class="' + cls + '">' + arr.map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("") + "</ul>"
+      ? '<ul class="' + cls + '">' + arr.map(function (t) {
+          if (f.key !== "progress") return "<li>" + esc(t) + "</li>";
+          var m = String(t).match(/^(\[?\d{1,2}:\d{2}\]?)\s+(.+)$/);
+          if (!m) return "<li>" + esc(t) + "</li>";
+          return '<li><span class="tl-ts">' + esc(m[1].replace(/^\[|\]$/g, "")) + '</span>' + esc(m[2]) + "</li>";
+        }).join("") + "</ul>"
       : '<div class="empty-hint">' + f.emptyText + "</div>";
   } else if (f.type === "notes") {
     var ns = c.notes || [];
@@ -325,7 +372,7 @@ function load() {
   var url = location.pathname + "/data" + (location.search || "") + "&focus=" + encodeURIComponent(focus);
   fetch(url)
     .then(function (r) { return r.json(); })
-    .then(function (d) { d._via = focus ? lastGoodVia : null; render(d); })
+    .then(function (d) { lastData = d; d._via = focus ? lastGoodVia : null; render(d); })
     .catch(function () {});
 }
 

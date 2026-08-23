@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "session-sidecar",
   "name": "Session 旁录",
-  "version": "0.2.3",
+  "version": "0.3.1",
   "description": "为每个 Session 自动维护一份结构化状态档案（为何开始 / 做了什么 / 形成了什么结果 / 停在哪里 / 后续可能继续什么），无需翻阅对话即可掌握会话全貌。事件总线触发 + mtime 兜底扫描，宿主 LLM 采样生成，页面实时展示，Agent 可用工具补充备注。",
   "minAppVersion": "0.82.0",
   "trust": "full-access",
@@ -64,6 +64,24 @@
           "default": false,
           "title": "记录事件总线调试日志",
           "description": "把收到的事件类型写入插件数据目录 debug-events.jsonl，仅供开发诊断。"
+        },
+        "genEndpoint": {
+          "type": "string",
+          "default": "",
+          "title": "生成端点（OpenAI 兼容）",
+          "description": "留空走宿主默认模型。填写如 http://100.70.149.123:10086/v1 则旁录改用该端点生成。"
+        },
+        "genApiKey": {
+          "type": "string",
+          "default": "",
+          "title": "生成端点 API Key",
+          "description": "自定义端点的 Bearer Token，如本地 OMLX 的 1234。"
+        },
+        "genModel": {
+          "type": "string",
+          "default": "",
+          "title": "生成模型名",
+          "description": "自定义端点的模型 ID，如 Qwen3.6-35B-A3B。"
         }
       }
     }
