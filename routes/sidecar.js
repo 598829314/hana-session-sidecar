@@ -87,6 +87,38 @@ button.rf {
   border: 1px solid var(--border); border-radius: 8px; padding: 3px 10px; cursor: pointer;
 }
 button.rf:hover { border-color: var(--accent); }
+/* ── 台账视图 ── */
+.tabs { display: flex; gap: 4px; margin: 0 0 14px; border-bottom: 1px solid var(--border); }
+.tab { padding: 7px 14px; font-size: 13.5px; color: var(--muted); cursor: pointer; border: none; background: none; font: inherit; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab.on { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); }
+.today-line { font-size: 13px; color: var(--muted); padding: 8px 12px; background: var(--bg); border: 1px dashed var(--border); border-radius: 10px; margin-bottom: 14px; }
+.today-line b { color: var(--fg); font-weight: 600; }
+.tcard { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin: 0 0 12px; }
+.tcard.done { opacity: .62; }
+.thead { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.tname { font-size: 15.5px; font-weight: 650; }
+.tstat { margin-left: auto; font-size: 12px; color: var(--muted); }
+.trow { font-size: 13.5px; line-height: 1.7; margin-top: 5px; }
+.trow .tl2 { color: var(--muted); margin-right: 6px; font-size: 12.5px; }
+.tnext { color: var(--amber); }
+.tmem { margin-top: 7px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+.tmem:hover { color: var(--accent); }
+.tmem-list { margin-top: 5px; padding: 7px 10px; background: var(--bg); border-radius: 8px; font-size: 12.5px; }
+.tmem-list div { padding: 1.5px 0; }
+.tdone-btn { font: inherit; font-size: 11.5px; color: var(--muted); background: none; border: 1px solid var(--border); border-radius: 7px; padding: 2px 8px; cursor: pointer; }
+.tdone-btn:hover { color: var(--accent); border-color: var(--accent); }
+.rv { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; }
+.rv-item { display: flex; gap: 8px; align-items: baseline; padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+.rv-item:last-child { border-bottom: none; }
+.rv-item input { margin-top: 3px; }
+.rv-reason { color: var(--muted); font-size: 12px; }
+.rv-actions { margin-top: 10px; display: flex; gap: 10px; }
+.rv-actions button { font: inherit; font-size: 12.5px; border-radius: 8px; padding: 5px 14px; cursor: pointer; }
+.rv-ok { background: var(--accent); color: #fff; border: 1px solid var(--accent); }
+.rv-cancel { background: none; color: var(--muted); border: 1px solid var(--border); }
+.propose-btn { font: inherit; font-size: 12.5px; color: var(--accent); background: none; border: 1px solid var(--border); border-radius: 9px; padding: 5px 13px; cursor: pointer; margin-bottom: 14px; }
+.propose-btn:hover { border-color: var(--accent); }
+.propose-btn[disabled] { opacity: .5; cursor: wait; }
 `;
 
 const PAGE_JS = `
@@ -168,8 +200,102 @@ async function refresh(key) {
   await fetch(BASE() + "/refresh" + QS(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }) });
   setTimeout(load, 1500);
 }
+/* ── 台账视图 ── */
+let VIEW = "threads";
+let TD = null;           // 最近一次 /threads 数据
+let MEM_OPEN = {};       // 事卡成员列表展开状态（跨轮询保持）
+function switchView(v) {
+  VIEW = v;
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.dataset.v === v));
+  $("#threads-view").style.display = v === "threads" ? "" : "none";
+  $("#list").style.display = v === "threads" ? "none" : "";
+  if (v === "threads") loadThreads();
+}
+async function loadThreads() {
+  try {
+    const res = await fetch(BASE() + "/threads" + QS());
+    TD = await res.json();
+    renderThreads();
+  } catch (e) { /* 台账渲染失败不影响会话视图 */ }
+}
+function renderThreads() {
+  const box = $("#threads-view");
+  if (!TD || TD.error) { box.innerHTML = '<div class="empty">台账数据加载失败</div>'; return; }
+  let html = "";
+  if (TD.todayNames && TD.todayNames.length) {
+    html += '<div class="today-line">今天被碰过的事：<b>' + TD.todayNames.map(escH).join("、") + "</b></div>";
+  }
+  html += '<button class="propose-btn" id="propose-btn" onclick="propose()">归拢未入账的会话</button>';
+  html += '<div id="review"></div>';
+  const act = TD.threads.filter((t) => t.status !== "done");
+  const done = TD.threads.filter((t) => t.status === "done");
+  html += act.map(tcardHtml).join("");
+  if (done.length) {
+    html += '<div class="label" style="margin:18px 0 10px">已交付 · ' + done.length + "</div>" + done.map(tcardHtml).join("");
+  }
+  if (!TD.threads.length) html += '<div class="empty">还没有归拢出任何「事」。点上面的按钮跑一次归拢。</div>';
+  box.innerHTML = html;
+}
+function tcardHtml(t) {
+  const open = MEM_OPEN[t.id] ? "" : " style='display:none'";
+  const mem = (t.members || []).map((m) => "<div>· " + escH(m.title) + ' <span style="color:var(--muted)">' + escH(m.agentId || "") + " · " + rel(m.lastActivityAt) + "</span></div>").join("");
+  return '<div class="tcard' + (t.status === "done" ? " done" : "") + '">'
+    + '<div class="thead">'
+    + '<span class="tname">' + escH(t.name) + "</span>"
+    + '<button class="tdone-btn" onclick="tstatus(\\'' + t.id + '\\',\\'' + (t.status === "done" ? "active" : "done") + '\\')">' + (t.status === "done" ? "重新打开" : "标记交付") + "</button>"
+    + '<span class="tstat">最后碰它 ' + rel(t.lastTouched) + "</span>"
+    + "</div>"
+    + (t.parkedAt ? '<div class="trow"><span class="tl2">停在哪</span>' + escH(t.parkedAt) + "</div>" : "")
+    + (t.next && t.next.length ? '<div class="trow tnext"><span class="tl2">还欠着</span>' + t.next.map(escH).join("；") + "</div>" : '<div class="trow"><span class="tl2">还欠着</span><span style="color:var(--muted)">无</span></div>')
+    + '<div class="tmem" onclick="tmem(\\'' + t.id + '\\')">来自 ' + t.memberCount + ' 个会话 ' + (MEM_OPEN[t.id] ? "▾" : "▸") + "</div>"
+    + '<div class="tmem-list"' + open + ">" + mem + "</div>"
+    + "</div>";
+}
+function tmem(id) { MEM_OPEN[id] = !MEM_OPEN[id]; renderThreads(); }
+async function tstatus(id, status) {
+  await fetch(BASE() + "/threads/apply" + QS(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ops: [{ action: "status", id, status }] }) });
+  loadThreads();
+}
+/* 归拢提议：拉提议 → 勾选 → 批准 */
+let PROPOSALS = null;
+async function propose() {
+  const btn = $("#propose-btn");
+  btn.disabled = true; btn.textContent = "归拢中，AI 正在读摘要……";
+  try {
+    const res = await fetch(BASE() + "/threads/propose" + QS(), { method: "POST" });
+    const d = await res.json();
+    if (d.error) { $("#review").innerHTML = '<div class="err">⚠ ' + escH(d.error) + "</div>"; return; }
+    PROPOSALS = d.proposals || [];
+    if (!PROPOSALS.length) { $("#review").innerHTML = '<div class="rv">' + escH(d.note || "没有需要归拢的会话") + "</div>"; return; }
+    $("#review").innerHTML = '<div class="rv"><div style="font-size:13px;margin-bottom:6px">AI 的归拢提议（' + PROPOSALS.length + ' 条），勾选你认可的：</div>'
+      + PROPOSALS.map((p, i) => {
+        const target = p.action === "assign" ? "归入「" + escH(p.threadName) + "」" : "新建事卡「" + escH(p.name) + "」";
+        return '<label class="rv-item"><input type="checkbox" checked data-i="' + i + '"><span><b>' + target + "</b> · " + p.keys.length + ' 个会话 <span class="rv-reason">' + escH(p.reason) + "</span></span></label>";
+      }).join("")
+      + '<div class="rv-actions"><button class="rv-ok" onclick="applyProposals()">批准选中项</button><button class="rv-cancel" onclick="cancelProposals()">算了</button></div></div>';
+  } finally {
+    btn.disabled = false; btn.textContent = "归拢未入账的会话";
+  }
+}
+async function applyProposals() {
+  const checked = Array.from(document.querySelectorAll("#review input:checked")).map((el) => Number(el.dataset.i));
+  const ops = [];
+  for (const i of checked) {
+    const p = PROPOSALS[i];
+    if (!p) continue;
+    if (p.action === "assign" && p.threadId) ops.push({ action: "assign", id: p.threadId, keys: p.keys });
+    else if (p.name) ops.push({ action: "create", name: p.name, keys: p.keys });
+  }
+  if (ops.length) await fetch(BASE() + "/threads/apply" + QS(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ops }) });
+  PROPOSALS = null;
+  loadThreads();
+}
+function cancelProposals() { PROPOSALS = null; $("#review").innerHTML = ""; }
+
 load();
+loadThreads();
 setInterval(load, 10000);
+setInterval(() => { if (VIEW === "threads" && !PROPOSALS) loadThreads(); }, 15000);
 `;
 
 export default function (app, ctx) {
@@ -219,6 +345,138 @@ function projectIdOfSession(sessionPath) {
     return _projCache.metaMaps[metaPath][base]?.projectId || null;
   } catch { return null; }
 }
+
+  // ── 台账层（「事」的账本）──
+  // threads.json 只存归拢结果（事名、状态、成员会话 key）；卡片内容实时从旁录档案推导，不产生新的 AI 文本
+  const threadsPath = path.join(dataDir, "threads.json");
+  const readThreads = () => {
+    try { return JSON.parse(fs.readFileSync(threadsPath, "utf-8")); } catch { return { version: 1, threads: [] }; }
+  };
+  const writeThreads = (d) => {
+    const tmp = threadsPath + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(d, null, 2), "utf-8");
+    fs.renameSync(tmp, threadsPath);
+  };
+  // 一天的边界在凌晨 04:00（用户作息）：现在不到 4 点，今天从昨天 4 点算起
+  const dayStart04 = () => {
+    const n = new Date();
+    const d = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 4, 0, 0, 0);
+    if (n.getTime() < d.getTime()) d.setDate(d.getDate() - 1);
+    return d.toISOString();
+  };
+  const deriveThreads = (recs) => {
+    const byKey = new Map(recs.map((r) => [r.key, r]));
+    const data = readThreads();
+    const assigned = new Set();
+    const cards = [];
+    for (const t of data.threads || []) {
+      const members = (t.keys || []).map((k) => byKey.get(k)).filter(Boolean)
+        .sort((a, b) => String(b.lastActivityAt || "").localeCompare(String(a.lastActivityAt || "")));
+      for (const k of t.keys || []) assigned.add(k);
+      if (!members.length) continue;
+      const head = members[0];
+      const nextSet = [];
+      const seen = new Set();
+      for (const m of members) {
+        for (const n of (m.state?.next || [])) {
+          const k2 = String(n).trim();
+          if (k2 && !seen.has(k2)) { seen.add(k2); nextSet.push(k2); }
+        }
+      }
+      cards.push({
+        id: t.id, name: t.name, status: t.status || "active",
+        lastTouched: head.lastActivityAt || head.updatedAt,
+        memberCount: members.length,
+        members: members.map((m) => ({ key: m.key, title: m.title || m.key, agentId: m.agentId, lastActivityAt: m.lastActivityAt })),
+        parkedAt: head.state?.parkedAt || "",
+        outcome: head.state?.outcome || "",
+        next: nextSet.slice(0, 5)
+      });
+    }
+    cards.sort((a, b) => String(b.lastTouched).localeCompare(String(a.lastTouched)));
+    const unassigned = recs.filter((r) => !assigned.has(r.key))
+      .map((r) => ({ key: r.key, title: r.title || r.key, agentId: r.agentId, lastActivityAt: r.lastActivityAt, origin: (r.state?.origin || "").slice(0, 80), messageCount: r.messageCount || 0 }));
+    const dayStart = dayStart04();
+    const todayNames = cards.filter((k) => String(k.lastTouched) >= dayStart).map((k) => k.name);
+    return { threads: cards, unassigned, todayNames, generatedAt: new Date().toISOString() };
+  };
+
+  app.get("/sidecar/threads", (c) => {
+    try { return c.json(deriveThreads(listSidecars())); }
+    catch (e) { return c.json({ error: e.message }, 500); }
+  });
+
+  app.post("/sidecar/threads/apply", async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const ops = Array.isArray(body.ops) ? body.ops : [];
+      const data = readThreads();
+      data.threads = data.threads || [];
+      const now = new Date().toISOString();
+      for (const op of ops) {
+        if (op.action === "create" && op.name) {
+          const id = "t" + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+          data.threads.push({ id, name: String(op.name).slice(0, 40), status: "active", keys: Array.isArray(op.keys) ? op.keys : [], createdAt: now, updatedAt: now });
+        } else if (op.action === "assign" && op.id && Array.isArray(op.keys)) {
+          const t = data.threads.find((x) => x.id === op.id);
+          if (t) { t.keys = Array.from(new Set([...(t.keys || []), ...op.keys])); t.updatedAt = now; }
+        } else if (op.action === "unassign" && Array.isArray(op.keys)) {
+          for (const t of data.threads) { t.keys = (t.keys || []).filter((k) => !op.keys.includes(k)); }
+        } else if (op.action === "status" && op.id && op.status) {
+          const t = data.threads.find((x) => x.id === op.id);
+          if (t && ["active", "done"].includes(op.status)) { t.status = op.status; t.updatedAt = now; }
+        } else if (op.action === "rename" && op.id && op.name) {
+          const t = data.threads.find((x) => x.id === op.id);
+          if (t) { t.name = String(op.name).slice(0, 40); t.updatedAt = now; }
+        } else if (op.action === "merge" && op.fromId && op.intoId) {
+          const from = data.threads.find((x) => x.id === op.fromId);
+          const into = data.threads.find((x) => x.id === op.intoId);
+          if (from && into) {
+            into.keys = Array.from(new Set([...(into.keys || []), ...(from.keys || [])]));
+            into.updatedAt = now;
+            data.threads = data.threads.filter((x) => x.id !== op.fromId);
+          }
+        }
+      }
+      writeThreads(data);
+      return c.json({ ok: true, count: data.threads.length });
+    } catch (e) { return c.json({ error: e.message }, 500); }
+  });
+
+  // 半自动归拢提议：AI 读未归拢会话的摘要，建议「新建事卡」或「归入现有事」，人点头后才 apply
+  app.post("/sidecar/threads/propose", async (c) => {
+    try {
+      const shared = globalThis.__sessionSidecar;
+      if (!shared?.sampleText) return c.json({ error: "生成通道未就绪" }, 503);
+      const recs = listSidecars();
+      const data = readThreads();
+      const assigned = new Set();
+      for (const t of data.threads || []) for (const k of t.keys || []) assigned.add(k);
+      const loose = recs.filter((r) => !assigned.has(r.key) && (r.messageCount || 0) >= 5 && r.state)
+        .slice(0, 40)
+        .map((r) => ({ key: r.key, 标题: r.title || "", 缘起: (r.state?.origin || "").slice(0, 90), 此刻: (r.state?.parkedAt || "").slice(0, 60) }));
+      if (!loose.length) return c.json({ ok: true, proposals: [], note: "没有待归拢的会话" });
+      const existing = (data.threads || []).map((t) => ({ id: t.id, 事名: t.name }));
+      const sys = "你是个人事务归档助手。给你一批「会话摘要」（每条是一次 AI 对话干了什么）和一份已有的「事」清单。把会话归拢到「事」：能并入已有的就并入，并不了的提出新事名（不超过 15 字，用人话说清这件事是什么）。审阅类会话优先挂进被审的那件事。只输出 JSON：{\"proposals\":[{\"action\":\"assign\",\"threadId\":\"已有事id\",\"keys\":[...],\"reason\":\"一句话\"},{\"action\":\"create\",\"name\":\"新事名\",\"keys\":[...],\"reason\":\"一句话\"}]}";
+      const user = "已有的事：" + JSON.stringify(existing) + "\n\n待归拢会话：" + JSON.stringify(loose);
+      const raw = await shared.sampleText(sys, user, 2400);
+      const m = String(raw).match(/\{[\s\S]*\}/);
+      if (!m) return c.json({ error: "模型未返回 JSON", raw: String(raw).slice(0, 300) }, 502);
+      let parsed;
+      try { parsed = JSON.parse(m[0]); } catch (e) { return c.json({ error: "JSON 解析失败: " + e.message, raw: m[0].slice(0, 300) }, 502); }
+      const validKeys = new Set(loose.map((r) => r.key));
+      const validIds = new Set(existing.map((t) => t.id));
+      const proposals = (parsed.proposals || []).map((p) => ({
+        action: p.action === "assign" && validIds.has(p.threadId) ? "assign" : "create",
+        threadId: p.threadId || null,
+        threadName: p.threadId ? (existing.find((t) => t.id === p.threadId)?.事名 || "") : "",
+        name: String(p.name || "").slice(0, 40),
+        keys: (Array.isArray(p.keys) ? p.keys : []).filter((k) => validKeys.has(k)),
+        reason: String(p.reason || "").slice(0, 80)
+      })).filter((p) => p.keys.length);
+      return c.json({ ok: true, proposals, looseCount: loose.length });
+    } catch (e) { return c.json({ error: e.message }, 500); }
+  });
 
   app.get("/sidecar/data", (c) => {
     const sessions = listSidecars();
@@ -339,7 +597,12 @@ ${hcLink}
     <h1>Session 旁录</h1>
     <span class="meta" id="meta">加载中…</span>
   </header>
-  <div id="list"><div class="empty">加载中…</div></div>
+  <div class="tabs">
+    <button class="tab on" data-v="threads" onclick="switchView('threads')">台账</button>
+    <button class="tab" data-v="sessions" onclick="switchView('sessions')">会话</button>
+  </div>
+  <div id="threads-view"><div class="empty">加载中…</div></div>
+  <div id="list" style="display:none"><div class="empty">加载中…</div></div>
 </div>
 <script>(function(){window.parent.postMessage({source:"hana-plugin",type:"ready"},"*")})();</script>
 <script>${PAGE_JS}</script>

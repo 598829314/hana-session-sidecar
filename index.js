@@ -394,6 +394,7 @@ export default class SessionSidecarPlugin {
       const j = await r.json();
       return j?.choices?.[0]?.message?.content || "";
     };
+    shared.sampleText = sampleText; // 暴露给路由层：台账归拢提议复用同一 LLM 通道
 
     const regenerate = async (ent, k) => {
       const c = cfg();
@@ -402,8 +403,8 @@ export default class SessionSidecarPlugin {
         const tr = extractTranscript(ent.sessionPath, c.maxExcerpt);
         const prev = loadRec(k);
         if (prev?.gen?.lastMsgCount === tr.messageCount && prev?.sessionPath === ent.sessionPath) {
-          // 内容没有新增，只刷新活动时间
-          prev.lastActivityAt = new Date().toISOString();
+          // 内容没有新增：活动时间以转录末尾消息为准（不用当前时间，避免重生成伪装成活跃）
+          prev.lastActivityAt = tr.lastTs || prev.lastActivityAt;
           prev.messageCount = tr.messageCount;
           atomicWrite(recPath(k), JSON.stringify(prev, null, 2));
           ent.lastMsgCount = tr.messageCount;
@@ -448,7 +449,7 @@ export default class SessionSidecarPlugin {
           title: ent.title || prev?.title || "",
           createdAt: prev?.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          lastActivityAt: new Date().toISOString(),
+          lastActivityAt: tr.lastTs || new Date().toISOString(),
           messageCount: tr.messageCount,
           lastRole: tr.lastRole,
           state,

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "session-sidecar",
   "name": "Session 旁录",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "为每个 Session 自动维护一份结构化状态档案（为何开始 / 做了什么 / 形成了什么结果 / 停在哪里 / 后续可能继续什么），无需翻阅对话即可掌握会话全貌。事件总线触发 + mtime 兜底扫描，宿主 LLM 采样生成，页面实时展示，Agent 可用工具补充备注。",
   "minAppVersion": "0.82.0",
   "trust": "full-access",
