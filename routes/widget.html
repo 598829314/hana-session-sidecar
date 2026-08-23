@@ -109,7 +109,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .field-count { min-width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; border-radius: 999px; background: var(--accent-soft); font-size: 9.5px; font-weight: 700; color: var(--accent-ink); }
 .field-body { padding: 1px 16px 17px 19px; }
 .field-text { color: var(--ink-2); overflow-wrap: anywhere; }
-.tl-scroll { max-height: 240px; overflow-y: auto; padding: 2px 8px 2px 0; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 26px, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 26px, #000 calc(100% - 26px), transparent); }
+.tl-scroll { max-height: 240px; overflow-y: auto; padding: 26px 8px 4px 0; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 26px, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 26px, #000 calc(100% - 26px), transparent); }
+.tl-scroll::-webkit-scrollbar { width: 4px; }
+.tl-scroll::-webkit-scrollbar-track { background: transparent; }
+.tl-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 2px; transition: background .25s; }
+.tl-scroll.scrolling::-webkit-scrollbar-thumb { background: var(--line); }
 .tl { list-style: none; }
 .tl li { position: relative; padding: 4px 0 4px 16px; overflow-wrap: anywhere; color: var(--ink-2); }
 .tl li::before { content: ""; position: absolute; left: 0; top: 13px; width: 7px; height: 2px; border-radius: 1px; background: var(--ink-4); }
@@ -378,6 +382,18 @@ function load() {
 
 load();
 pingHost();
+// 时间线滚动条：只在滚动时浮现（document 捕获层监听，DOM 轮询重建后仍生效）
+var tlScrollTimer = null;
+document.addEventListener("scroll", function (e) {
+  var t = e.target;
+  if (!t || !t.classList || !t.classList.contains("tl-scroll")) return;
+  t.classList.add("scrolling");
+  clearTimeout(tlScrollTimer);
+  tlScrollTimer = setTimeout(function () {
+    var cur = document.querySelector(".tl-scroll");
+    if (cur) cur.classList.remove("scrolling");
+  }, 700);
+}, true);
 setInterval(load, 2500);
 setInterval(pingHost, 15000);
 </script>
