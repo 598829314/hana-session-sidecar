@@ -98,6 +98,15 @@ button.rf:hover { border-color: var(--accent); }
 .today-line b { color: var(--fg); font-weight: 600; }
 .tgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; align-items: start; }
 .tmem-face { font-size: 13px; line-height: 1.75; margin-top: 4px; }
+.tquote { font-size: 12.5px; color: var(--muted); font-style: italic; border-left: 2px solid var(--accent); padding-left: 10px; margin: 8px 0 6px; line-height: 1.65; }
+.memrow { margin: 4px 0; }
+.memorigin { font-size: 12px; color: var(--muted); margin: 1px 0 2px 14px; }
+.exc-link { color: var(--accent); font-size: 12px; cursor: pointer; margin-left: 8px; user-select: none; }
+.exc { font-size: 12.5px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 6px 0 4px 14px; line-height: 1.7; }
+.exc div + div { margin-top: 6px; }
+.exc-role { display: inline-block; min-width: 30px; margin-right: 6px; font-size: 11px; font-weight: 700; }
+.exc-role.u { color: var(--accent); }
+.exc-role.a { color: var(--muted); }
 .tcard { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin: 0; }
 .tcard.done { opacity: .62; }
 .thead { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
@@ -156,23 +165,51 @@ function render(data) {
     $("#list").innerHTML = '<div class="empty">还没有旁录。让任意会话活动一会儿，第一份档案会自动出现。</div>';
     return;
   }
+  // 按「归属的事」分组；未归类的排在最上面，归拢家务也在这里
   const groups = new Map();
   for (const r of data.sessions) {
-    const g = r.projectName || "未分组";
+    const g = r.threadName || "未归类";
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(r);
   }
-  const ordered = (data.projects || []).map((p) => p.name).filter((n) => groups.has(n));
-  for (const n of groups.keys()) if (n !== "未分组" && !ordered.includes(n)) ordered.push(n);
-  if (groups.has("未分组")) ordered.push("未分组");
+  const names = Array.from(groups.keys()).filter((n) => n !== "未归类");
+  for (const r of data.sessions) RV_TITLES[r.key] = r.title || r.key;
   let html = "";
-  for (const name of ordered) {
+  if (groups.has("未归类")) {
+    const loose = groups.get("未归类");
+    html += '<div class="pgroup"><div class="pgroup-head"><span class="pgroup-name">未归类</span><span class="pgroup-stat">' + loose.length + ' 份 · 还没归入任何事（不管它也没关系）</span></div>'
+      + '<div style="margin:2px 2px 10px"><button class="propose-btn" id="propose-btn" onclick="propose()">让 AI 提个归拢建议</button>'
+      + '<span style="font-size:12px;color:var(--muted);margin-left:10px">AI 只出建议；你勾选并点「批准」之前，什么都不会改。</span></div>'
+      + '<div id="review"></div>'
+      + loose.map(cardHtml).join("") + "</div>";
+  }
+  for (const name of names) {
     const list = groups.get(name);
-    const act = list.filter((r) => r.state?.status === "active").length;
-    html += '<div class="pgroup"><div class="pgroup-head"><span class="pgroup-name">' + escH(name) + '</span><span class="pgroup-stat">' + list.length + ' 份' + (act ? ' · ' + act + ' 进行中' : "") + '</span></div>'
+    html += '<div class="pgroup"><div class="pgroup-head"><span class="pgroup-name">' + escH(name) + '</span><span class="pgroup-stat">' + list.length + ' 份</span></div>'
       + list.map(cardHtml).join("") + "</div>";
   }
+  // 10 秒轮询重建 DOM 时，留住归拢核对区
+  const keepReview = PROPOSALS ? $("#review") && $("#review").innerHTML : null;
   $("#list").innerHTML = html;
+  if (keepReview && $("#review")) $("#review").innerHTML = keepReview;
+  if (FEEDBACK && $("#review")) { $("#review").innerHTML = FEEDBACK; FEEDBACK = null; }
+  maybeRestoreProposal();
+}
+// 页面刷新/切换后，把上次没处理完的归拢提议恢复出来
+let RV_TRIED = false;
+let RV_TITLES = {};
+async function maybeRestoreProposal() {
+  if (PROPOSALS || RV_TRIED || !$("#review")) return;
+  RV_TRIED = true;
+  try {
+    const res = await fetch(BASE() + "/proposal" + QS());
+    const d = await res.json();
+    if (d.proposals && d.proposals.length) {
+      PROPOSALS = d.proposals;
+      RV_TITLES = d.titles || {};
+      paintReview(d.ts);
+    }
+  } catch (e) {}
 }
 function cardHtml(r) {
     const st = STATUS[r.state?.status] || STATUS.active;
@@ -232,54 +269,65 @@ function renderThreads() {
   if (TD.todayNames && TD.todayNames.length) {
     html += '<div class="today-line">今天被碰过的事：<b>' + TD.todayNames.map(escH).join("、") + "</b></div>";
   }
-  // 待归拢区：状态先摆出来，动作附带后果说明
-  const loose = TD.unassigned || [];
-  if (loose.length) {
-    html += '<div class="rv"><div style="font-size:13.5px;margin-bottom:4px"><b>' + loose.length + ' 个会话还没归入任何事</b>（单发问答不进台账也没关系）</div>'
-      + '<div class="tmem" onclick="looseToggle()">' + (LOOSE_OPEN ? "▾ 收起清单" : "▸ 看看是哪些") + "</div>"
-      + '<div class="tmem-list"' + (LOOSE_OPEN ? "" : ' style="display:none"') + ">"
-      + loose.map((s) => "<div>· " + escH(s.title) + ' <span style="color:var(--muted)">' + escH(s.agentId || "") + " · " + rel(s.lastActivityAt) + "</span></div>").join("")
-      + "</div>"
-      + '<div style="margin-top:10px"><button class="propose-btn" id="propose-btn" onclick="propose()">让 AI 提个归拢建议</button>'
-      + '<span style="font-size:12px;color:var(--muted);margin-left:10px">AI 只出建议；你勾选并点「批准」之前，台账一个字都不会改。</span></div></div>';
-  }
-  html += '<div id="review"></div>';
   const act = TD.threads.filter((t) => t.status !== "done");
   const done = TD.threads.filter((t) => t.status === "done");
   html += '<div class="tgrid">' + act.map(tcardHtml).join("") + "</div>";
   if (done.length) {
     html += '<div class="label" style="margin:18px 0 10px">办完了 · ' + done.length + '</div><div class="tgrid">' + done.map(tcardHtml).join("") + "</div>";
   }
-  if (!TD.threads.length) html += '<div class="empty">还没有归拢出任何「事」。等有待归拢的会话时，在上面跑一次归拢建议。</div>';
+  if (!TD.threads.length) html += '<div class="empty">还没有归拢出任何「事」。到「会话」标签页跑一次归拢建议就有了。</div>';
   box.innerHTML = html;
-  if (FEEDBACK) { $("#review").innerHTML = FEEDBACK; FEEDBACK = null; }
-  // 上次还没处理的归拢提议，刷新后自动恢复
-  if (!PROPOSALS && TD.proposal && TD.proposal.proposals && TD.proposal.proposals.length) {
-    PROPOSALS = TD.proposal.proposals;
-    paintReview(TD.proposal.ts);
-  }
 }
 function looseToggle() { LOOSE_OPEN = !LOOSE_OPEN; renderThreads(); }
 /* 事卡：卡面只放能帮你「想起这件事」的东西——事名 + 成员会话的真实标题；
    停在哪 / 更多会话收进展开区，不在卡面占地方 */
+/* 事卡（便签墙）：脸上只有 事名 / 最近一次你自己说的话 / 时间 / 几个会话。
+   点开：每个会话的标题 + 你的第一句话 + 看看结尾；最底部才是「标为办完」。 */
+let EXC = {};       // key -> 原文摘录缓存
+let EXC_OPEN = {};  // key -> 展开状态
+async function excToggle(key) {
+  EXC_OPEN[key] = !EXC_OPEN[key];
+  if (EXC_OPEN[key] && !EXC[key]) {
+    EXC[key] = "loading";
+    renderThreads();
+    try {
+      const res = await fetch(BASE() + "/excerpt" + QS() + "&key=" + key);
+      EXC[key] = await res.json();
+    } catch (e) { EXC[key] = { error: "读取失败" }; }
+  }
+  renderThreads();
+}
+function memRow(m) {
+  const open = EXC_OPEN[m.key];
+  const name = (m.title && m.title !== m.key) ? m.title : (m.origin ? m.origin.slice(0, 18) + "…" : m.key.slice(0, 8));
+  let excHtml = "";
+  if (open) {
+    const d = EXC[m.key];
+    if (d === "loading") excHtml = '<div class="exc">读原文中……</div>';
+    else if (d && d.error) excHtml = '<div class="exc">⚠ ' + escH(d.error) + "</div>";
+    else if (d && d.tail) excHtml = '<div class="exc">' + d.tail.map((x) => '<div><span class="exc-role ' + (x.role === "user" ? "u" : "a") + '">' + (x.role === "user" ? "你" : "助手") + "</span>" + escH(x.text) + "</div>").join("") + "</div>";
+  }
+  return '<div class="memrow"><div>· <span style="font-weight:600">' + escH(name) + '</span> <span style="color:var(--muted)">' + rel(m.lastActivityAt) + '</span> <span class="exc-link" data-key="' + m.key + '" onclick="excToggle(this.dataset.key)">' + (open ? "▾ 收起" : "▸ 看看结尾") + "</span></div>"
+    + (m.origin ? '<div class="memorigin">“' + escH(m.origin) + '”</div>' : "")
+    + excHtml + "</div>";
+}
 function tcardHtml(t) {
   const open = MEM_OPEN[t.id] ? "" : " style='display:none'";
   const ms = t.members || [];
-  const face = ms.slice(0, 3).map((m) => "<div>· " + escH(m.title) + ' <span style="color:var(--muted)">' + rel(m.lastActivityAt) + "</span></div>").join("");
-  const rest = ms.slice(3).map((m) => "<div>· " + escH(m.title) + ' <span style="color:var(--muted)">' + rel(m.lastActivityAt) + "</span></div>").join("");
-  const moreCount = ms.length - 3;
-  const hasDetail = moreCount > 0 || t.parkedAt;
-  const detail = '<div class="tmem-list"' + open + ">" + rest
-    + (t.parkedAt ? '<div style="margin-top:6px;font-size:12px;color:var(--muted)">最近一次停在这：' + escH(t.parkedAt) + "</div>" : "")
+  const latest = ms[0] || {};
+  const detail = '<div class="tmem-list"' + open + ">"
+    + ms.map(memRow).join("")
+    + (t.parkedAt ? '<div style="margin-top:8px;font-size:12px;color:var(--muted)">最近一次停在这：' + escH(t.parkedAt) + "</div>" : "")
+    + '<div style="margin-top:10px"><button class="tdone-btn" data-id="' + t.id + '" data-st="' + (t.status === "done" ? "active" : "done") + '" onclick="tstatus(this.dataset.id, this.dataset.st)">' + (t.status === "done" ? "其实还没办完" : "标为办完") + "</button></div>"
     + "</div>";
   return '<div class="tcard' + (t.status === "done" ? " done" : "") + '">'
     + '<div class="thead">'
     + '<span class="tname">' + escH(t.name) + "</span>"
-    + '<button class="tdone-btn" data-id="' + t.id + '" data-st="' + (t.status === "done" ? "active" : "done") + '" onclick="tstatus(this.dataset.id, this.dataset.st)">' + (t.status === "done" ? "其实还没办完" : "标为办完") + "</button>"
-    + '<span class="tstat">' + ms.length + ' 个会话 · 最后碰它 ' + rel(t.lastTouched) + "</span>"
+    + '<span class="tstat">' + ms.length + ' 个会话 · ' + rel(t.lastTouched) + "</span>"
     + "</div>"
-    + '<div class="tmem-face">' + face + "</div>"
-    + (hasDetail ? '<div class="tmem" data-id="' + t.id + '" onclick="tmem(this.dataset.id)">' + (MEM_OPEN[t.id] ? "▾ 收起" : "▸ " + (moreCount > 0 ? "还有 " + moreCount + " 个会话" : "看看细节")) + "</div>" + detail : "")
+    + (latest.origin ? '<div class="tquote">“' + escH(latest.origin) + '”</div>' : "")
+    + '<div class="tmem" data-id="' + t.id + '" onclick="tmem(this.dataset.id)">' + (MEM_OPEN[t.id] ? "▾ 收起" : "▸ 点开看每一段") + "</div>"
+    + detail
     + "</div>";
 }
 function tmem(id) { MEM_OPEN[id] = !MEM_OPEN[id]; renderThreads(); }
@@ -291,8 +339,7 @@ async function tstatus(id, status) {
 let PROPOSALS = null;
 let FEEDBACK = null;   // 落账回执：渲染后贴一次就清
 function paintReview(ts) {
-  const titleOf = {};
-  for (const s of (TD.unassigned || [])) titleOf[s.key] = s.title;
+  const titleOf = RV_TITLES;
   const when = ts ? ' <span style="font-size:12px;color:var(--muted)">（' + rel(ts) + "提的，刷新页面也不会丢）</span>" : "";
   $("#review").innerHTML = '<div class="rv"><div style="font-size:13.5px;margin-bottom:2px"><b>AI 提了 ' + PROPOSALS.length + ' 条建议</b>' + when + '，理由和涉及的具体会话都在下面</div>'
     + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">逐条核对，不认可的勾掉；点「批准」才落账，点「算了」就清除这条建议。</div>'
@@ -331,6 +378,7 @@ async function applyProposals() {
     FEEDBACK = '<div class="rv"><b>落账了：</b>' + ops.map((o) => (o.action === "create" ? "新建事卡「" + escH(o.name) + "」" : "归入已有事卡") + "（" + o.keys.length + " 个会话）").join("；") + "</div>";
   }
   PROPOSALS = null;
+  await load();
   await loadThreads();
 }
 function cancelProposals() {
@@ -447,7 +495,7 @@ function projectIdOfSession(sessionPath) {
         id: t.id, name: t.name, status: t.status || "active",
         lastTouched: head.lastActivityAt || head.updatedAt,
         memberCount: members.length,
-        members: members.map((m) => ({ key: m.key, title: m.title || m.key, agentId: m.agentId, lastActivityAt: m.lastActivityAt })),
+        members: members.map((m) => ({ key: m.key, title: m.title || m.key, agentId: m.agentId, lastActivityAt: m.lastActivityAt, origin: (m.state?.origin || "").slice(0, 120) })),
         parkedAt: head.state?.parkedAt || "",
         outcome: head.state?.outcome || "",
         next: nextSet.slice(0, 5)
@@ -473,6 +521,35 @@ function projectIdOfSession(sessionPath) {
         else clearProposal();
       }
       return c.json(out);
+    } catch (e) { return c.json({ error: e.message }, 500); }
+  });
+
+  // 会话原文摘录：返回最后几轮「你说 / 助手说」的原文，帮人回忆起这件事
+  app.get("/sidecar/excerpt", (c) => {
+    try {
+      const key = c.req.query("key") || "";
+      const rec = listSidecars().find((r) => r.key === key);
+      if (!rec) return c.json({ error: "没找到这条会话" }, 404);
+      if (!rec.sessionPath || !fs.existsSync(rec.sessionPath)) return c.json({ error: "原文文件不在了（可能已归档或删除）" }, 404);
+      const raw = fs.readFileSync(rec.sessionPath, "utf-8");
+      const texts = [];
+      const clean = (t) => String(t)
+        .replace(/\[?hana_reminder\]?[\s\S]*?\[?\/hana_reminder\]?/g, "")
+        .replace(/<mood>[\s\S]*?<\/mood>/g, "")
+        .trim();
+      for (const line of raw.split("\n")) {
+        if (!line) continue;
+        let r; try { r = JSON.parse(line); } catch { continue; }
+        if (r.type !== "message" || !r.message) continue;
+        const role = r.message.role;
+        if (role !== "user" && role !== "assistant") continue;
+        const parts = [];
+        for (const cc of r.message.content || []) { if (cc?.type === "text" && cc.text) parts.push(cc.text); }
+        if (typeof r.message.content === "string") parts.push(r.message.content);
+        const text = clean(parts.join("\n"));
+        if (text) texts.push({ role, text: text.slice(0, 220) });
+      }
+      return c.json({ ok: true, tail: texts.slice(-4) });
     } catch (e) { return c.json({ error: e.message }, 500); }
   });
 
@@ -559,12 +636,31 @@ function projectIdOfSession(sessionPath) {
   app.get("/sidecar/data", (c) => {
     const sessions = listSidecars();
     const cat = projectCatalog();
+    // 每个会话挂上归属的事名（没归类就是 null）
+    const keyToThread = new Map();
+    for (const t of readThreads().threads || []) for (const k of t.keys || []) keyToThread.set(k, t.name);
     for (const r of sessions) {
       const pid = r.sessionPath ? projectIdOfSession(r.sessionPath) : null;
       r.projectId = pid;
       r.projectName = pid ? (cat.byId[pid]?.name || null) : null;
+      r.threadName = keyToThread.get(r.key) || null;
     }
     return c.json({ sessions, projects: (cat.order || []).map((id) => ({ id, name: cat.byId[id]?.name || id })), generatedAt: new Date().toISOString() });
+  });
+
+  // 还活着的归拢提议 + 涉及会话的标题（页面刷新后恢复用）
+  app.get("/sidecar/proposal", (c) => {
+    const saved = readProposal();
+    if (!saved || !Array.isArray(saved.proposals) || !saved.proposals.length) return c.json({ proposals: [] });
+    const recs = listSidecars();
+    const assigned = new Set();
+    for (const t of readThreads().threads || []) for (const k of t.keys || []) assigned.add(k);
+    const looseKeys = new Set(recs.filter((r) => !assigned.has(r.key)).map((r) => r.key));
+    const alive = saved.proposals.filter((p) => (p.keys || []).some((k) => looseKeys.has(k)));
+    if (!alive.length) { clearProposal(); return c.json({ proposals: [] }); }
+    const titles = {};
+    for (const r of recs) titles[r.key] = r.title || r.key;
+    return c.json({ ts: saved.ts, proposals: alive, titles });
   });
 
   app.post("/sidecar/refresh", async (c) => {
