@@ -284,7 +284,10 @@ function renderThreads() {
       else if (/正在|中断|受阻|排查|失败|报错|卡住/.test(p)) busy.push(s);
       else moved.push(s);
     }
-    const row = (s) => '<div class="tday-row"><span class="tday-name">' + escH(s.threadName || s.title) + '</span><span class="tday-park">' + escH(s.parkedAt || "") + '</span><span class="tday-time">' + rel(s.lastActivityAt) + "</span></div>";
+    const row = (s) => {
+      const name = s.threadName || ((s.title && s.title !== s.key) ? s.title : (s.origin ? s.origin.slice(0, 16) + "…" : s.key.slice(0, 8)));
+      return '<div class="tday-row"><span class="tday-name">' + escH(name) + '</span><span class="tday-park">' + escH(s.parkedAt || "") + '</span><span class="tday-time">' + rel(s.lastActivityAt) + "</span></div>";
+    };
     html += '<div class="today2">'
       + (waiting.length ? '<div class="tq"><div class="tq-head">等你拍板 · ' + waiting.length + "</div>" + waiting.map(row).join("") + "</div>" : "")
       + (busy.length ? '<div class="tq"><div class="tq-head">还在弄 · ' + busy.length + "</div>" + busy.map(row).join("") + "</div>" : "")
@@ -536,6 +539,7 @@ function projectIdOfSession(sessionPath) {
     const today = recs.filter((r) => String(r.lastActivityAt || "") >= dayStart)
       .map((r) => ({
         key: r.key, title: r.title || r.key, threadName: keyToThreadName(r.key),
+        origin: (r.state?.origin || "").slice(0, 60),
         parkedAt: (r.state?.parkedAt || "").slice(0, 120),
         lastActivityAt: r.lastActivityAt
       }))
