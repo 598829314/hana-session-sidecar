@@ -99,6 +99,14 @@ button.rf:hover { border-color: var(--accent); }
 .tgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; align-items: start; }
 .tmem-face { font-size: 13px; line-height: 1.75; margin-top: 4px; }
 .tquote { font-size: 12.5px; color: var(--muted); font-style: italic; border-left: 2px solid var(--accent); padding-left: 10px; margin: 8px 0 6px; line-height: 1.65; }
+.today2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.tq { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px 16px; }
+.tq-head { font-size: 14px; font-weight: 650; margin-bottom: 8px; }
+.tday-row { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; padding: 4px 0; border-top: 1px dashed var(--border); }
+.tday-row:first-of-type { border-top: none; }
+.tday-name { font-weight: 600; white-space: nowrap; }
+.tday-park { color: var(--muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tday-time { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 .memrow { margin: 4px 0; }
 .memorigin { font-size: 12px; color: var(--muted); margin: 1px 0 2px 14px; }
 .exc-link { color: var(--accent); font-size: 12px; cursor: pointer; margin-left: 8px; user-select: none; }
@@ -266,8 +274,22 @@ function renderThreads() {
   const box = $("#threads-view");
   if (!TD || TD.error) { box.innerHTML = '<div class="empty">台账数据加载失败</div>'; return; }
   let html = "";
-  if (TD.todayNames && TD.todayNames.length) {
-    html += '<div class="today-line">今天被碰过的事：<b>' + TD.todayNames.map(escH).join("、") + "</b></div>";
+  // 今天：按「球在谁手里」分队——等你拍板 / 还在弄 / 有动静
+  const today = TD.today || [];
+  if (today.length) {
+    const waiting = [], busy = [], moved = [];
+    for (const s of today) {
+      const p = s.parkedAt || "";
+      if (/等待|等你|待你|验收|确认|已交付|已定稿|已完成|补充/.test(p)) waiting.push(s);
+      else if (/正在|中断|受阻|排查|失败|报错|卡住/.test(p)) busy.push(s);
+      else moved.push(s);
+    }
+    const row = (s) => '<div class="tday-row"><span class="tday-name">' + escH(s.threadName || s.title) + '</span><span class="tday-park">' + escH(s.parkedAt || "") + '</span><span class="tday-time">' + rel(s.lastActivityAt) + "</span></div>";
+    html += '<div class="today2">'
+      + (waiting.length ? '<div class="tq"><div class="tq-head">等你拍板 · ' + waiting.length + "</div>" + waiting.map(row).join("") + "</div>" : "")
+      + (busy.length ? '<div class="tq"><div class="tq-head">还在弄 · ' + busy.length + "</div>" + busy.map(row).join("") + "</div>" : "")
+      + (moved.length ? '<div class="tq"><div class="tq-head">今天有动静 · ' + moved.length + "</div>" + moved.map(row).join("") + "</div>" : "")
+      + "</div>";
   }
   const act = TD.threads.filter((t) => t.status !== "done");
   const done = TD.threads.filter((t) => t.status === "done");
@@ -475,6 +497,10 @@ function projectIdOfSession(sessionPath) {
   const deriveThreads = (recs) => {
     const byKey = new Map(recs.map((r) => [r.key, r]));
     const data = readThreads();
+    const keyToThreadName = (k) => {
+      for (const t of data.threads || []) if ((t.keys || []).includes(k)) return t.name;
+      return null;
+    };
     const assigned = new Set();
     const cards = [];
     for (const t of data.threads || []) {
@@ -506,7 +532,15 @@ function projectIdOfSession(sessionPath) {
       .map((r) => ({ key: r.key, title: r.title || r.key, agentId: r.agentId, lastActivityAt: r.lastActivityAt, origin: (r.state?.origin || "").slice(0, 80), messageCount: r.messageCount || 0 }));
     const dayStart = dayStart04();
     const todayNames = cards.filter((k) => String(k.lastTouched) >= dayStart).map((k) => k.name);
-    return { threads: cards, unassigned, todayNames, generatedAt: new Date().toISOString() };
+    // 「今天」区：所有今天动过的会话（不管归没归类），按「球在谁手里」预分拣
+    const today = recs.filter((r) => String(r.lastActivityAt || "") >= dayStart)
+      .map((r) => ({
+        key: r.key, title: r.title || r.key, threadName: keyToThreadName(r.key),
+        parkedAt: (r.state?.parkedAt || "").slice(0, 120),
+        lastActivityAt: r.lastActivityAt
+      }))
+      .sort((a, b) => String(b.lastActivityAt).localeCompare(String(a.lastActivityAt)));
+    return { threads: cards, unassigned, todayNames, today, generatedAt: new Date().toISOString() };
   };
 
   app.get("/sidecar/threads", (c) => {
