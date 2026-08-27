@@ -477,6 +477,19 @@ button.rf:hover { border-color: var(--accent); }
 .propose-btn:hover { border-color: var(--accent); }
 .propose-btn[disabled] { opacity: .5; cursor: wait; }
 .pdone { color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--accent); cursor: pointer; }
+/* 折叠卡：长的内容默认收起，第一眼不糊脸 */
+details.pcard { padding: 0; }
+details.pcard summary { cursor: pointer; list-style: none; padding: var(--space-4) var(--space-5); display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 700; letter-spacing: .08em; color: var(--text-tertiary); text-transform: uppercase; user-select: none; }
+details.pcard summary::-webkit-details-marker { display: none; }
+details.pcard summary::after { content: "▸"; margin-left: auto; color: var(--ink-400); font-size: 12px; transition: transform var(--dur-fast) var(--ease-out); }
+details.pcard[open] summary::after { transform: rotate(90deg); }
+details.pcard summary .ic { font-size: 15px; }
+details.pcard .fold-body { padding: 0 var(--space-5) var(--space-4); }
+details.pcard .fold-body > p { margin: 0; }
+/* 阅读面板正文字号抬一档，别密密麻麻 */
+.pcard p, .pcard ul, .pcard li { font-size: var(--text-md); }
+.pcard li { padding: 3px 0; }
 `;
 
 const PAGE_JS = `
@@ -731,6 +744,7 @@ function renderList() {
 }
 
 function pcard(icon, title, inner) { return '<div class="pcard"><h4><span class="ic">' + icon + "</span>" + title + "</h4>" + inner + "</div>"; }
+function pfold(icon, title, inner) { return '<details class="pcard fold"><summary><span class="ic">' + icon + "</span>" + title + "</summary><div class='fold-body'>" + inner + "</div></details>"; }
 function extractFiles(texts) {
   const found = [];
   const re = /[\w一-龥（）()·\-【】《》\s]{2,60}\.(?:docx|xlsx|pptx|pdf|png|jpe?g|md|zip|html)/g;
@@ -768,24 +782,24 @@ function renderPane() {
   const d = e.detail || {};
   const gd = GDEF[e.g];
   let cards = "";
-  if (d.narrative) cards += pcard("🗂", "这一程", "<p>" + escH(d.narrative) + "</p>");
-  if (d.parkedAt) cards += pcard("📍", "此刻", "<p>" + escH(d.parkedAt) + "</p>");
+  // 第一眼只留三样：现在到哪了（横幅）→ 接下来要干什么 → 做成了什么；长的默认折叠
+  if (d.next && d.next.length) cards += pcard("👉", "接下来要干什么", "<ul>" + d.next.map((x) => "<li>" + escH(x) + "</li>").join("") + "</ul>");
   const files = extractFiles([d.outcome || "", (d.progress || []).join(" ")]);
   if (d.outcome || files.length) {
-    cards += pcard("📦", "成果",
+    cards += pcard("📦", "做成了什么",
       (d.outcome ? "<p>" + escH(d.outcome) + "</p>" : "")
       + (files.length ? '<div class="files">' + files.map((f) => '<span class="file"><span class="ic">📄</span>' + escH(f) + "</span>").join("") + "</div>" : ""));
   }
-  if (d.next && d.next.length) cards += pcard("👉", "接下来", "<ul>" + d.next.map((x) => "<li>" + escH(x) + "</li>").join("") + "</ul>");
+  if (d.narrative) cards += pfold("🗂", "来龙去脉 · 这件事怎么走到今天的", "<p>" + escH(d.narrative) + "</p>");
   if (d.progress && d.progress.length) {
     const items = d.progress.slice().reverse().map((p) => {
       const m = String(p).match(/^\[?(\d{1,2}:\d{2})\]?\s+(.+)$/);
       return '<div class="tl-item"><span class="tdot"></span><span class="tl-time">' + (m ? escH(m[1]) : "") + '</span><span class="tl-txt">' + escH(m ? m[2] : p) + "</span></div>";
     }).join("");
-    cards += pcard("🕐", "时间线 · " + d.progress.length + " 条", '<div class="tl">' + items + "</div>");
+    cards += pfold("🕐", "过程记录 · " + d.progress.length + " 条", '<div class="tl">' + items + "</div>");
   }
   if (d.members && d.members.length) {
-    cards += pcard("💬", "这件事下的会话 · " + d.members.length + " 段", '<ul class="sess">' + d.members.map(sessRow).join("") + "</ul>");
+    cards += pcard("💬", "相关的聊天 · " + d.members.length + " 段", '<ul class="sess">' + d.members.map(sessRow).join("") + "</ul>");
   }
   const doneLink = e.singleton ? "" : ' · <a href="javascript:void 0" class="pdone" data-id="' + e.id + '" data-st="' + (e.state === "done" ? "active" : "done") + '" onclick="tstatus(this.dataset.id, this.dataset.st)">' + (e.state === "done" ? "其实还没办完" : "标为办完") + "</a>";
   pane.innerHTML = '<div class="p-inner"><div class="p-head"><span class="badge lg ' + e.g + '">' + gd.char + "</span>"
