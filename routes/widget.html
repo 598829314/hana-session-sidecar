@@ -405,6 +405,20 @@ function reportProbe(why) {
   } catch (e) {}
 }
 reportProbe("boot");
+
+/* 挂件自我更新：宿主不热重载 iframe，那就自己每分钟对一次版本号，不一致就刷新自己 */
+var WIDGET_VER = "0.5.1";
+setInterval(function () {
+  try {
+    var sep = (location.search || "") ? "&" : "?";
+    fetch(location.pathname + (location.search || "") + sep + "_vercheck=" + Date.now())
+      .then(function (r) { return r.text(); })
+      .then(function (t) {
+        if (t.indexOf("WIDGET_VER") >= 0 && t.indexOf('WIDGET_VER = "' + WIDGET_VER + '"') < 0) location.reload();
+      })
+      .catch(function () {});
+  } catch (e) {}
+}, 60000);
 var lastProbeFocus = undefined;
 setInterval(function () {
   var f = resolveFocus() || null;
