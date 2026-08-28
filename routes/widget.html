@@ -382,6 +382,35 @@ function load() {
 
 load();
 pingHost();
+
+/* 跟随通道诊断探针：向 /widget/probe 上报真实现场（挂载时 + 焦点变化时 + 未跟定时每 20s） */
+function reportProbe(why) {
+  try {
+    var info = { why: why, href: location.href, ts: new Date().toISOString() };
+    try {
+      var doc = window.parent && window.parent.document;
+      info.parentOrigin = window.parent.location ? window.parent.location.origin : "?";
+      info.canReadParent = !!doc;
+      if (doc) {
+        info.shellHits = doc.querySelectorAll('[class*="sessionShellActive"]').length;
+        info.shellPathHits = doc.querySelectorAll('[class*="sessionShellActive"] [data-session-path]').length;
+        info.itemHits = doc.querySelectorAll('[data-session-path]').length;
+        info.itemActiveHits = doc.querySelectorAll('[data-session-path][class*="sessionItemActive"]').length;
+      }
+    } catch (e) { info.canReadParent = false; info.parentErr = String(e); }
+    info.stableFocus = stableFocus; info.via = lastGoodVia;
+    fetch(location.pathname + "/probe" + (location.search || ""), {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(info)
+    }).catch(function () {});
+  } catch (e) {}
+}
+reportProbe("boot");
+var lastProbeFocus = undefined;
+setInterval(function () {
+  var f = resolveFocus() || null;
+  if (f !== lastProbeFocus) { lastProbeFocus = f; reportProbe("focus-change"); }
+  else if (!f) reportProbe("unfocused-tick");
+}, 20000);
 // 时间线滚动条：只在滚动时浮现（document 捕获层监听，DOM 轮询重建后仍生效）
 var tlScrollTimer = null;
 document.addEventListener("scroll", function (e) {
