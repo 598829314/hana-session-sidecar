@@ -274,6 +274,13 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 
 /* 窗口不够宽时：左栏收成图标条，把宽度让给阅读区 */
 .slbl-short{display:none}
+/* 分缝拖拽把手 */
+.grip{flex:0 0 6px;cursor:col-resize;z-index:5;transition:background var(--dur-fast)}
+.grip:hover,.grip.on{background:color-mix(in srgb, var(--gold-500) 38%, transparent)}
+body.col-dragging{cursor:col-resize;user-select:none;-webkit-user-select:none}
+/* 滚动条隐藏（滚动功能保留） */
+.side,.lrows,.pane,#page-sessions{scrollbar-width:none;-ms-overflow-style:none}
+.side::-webkit-scrollbar,.lrows::-webkit-scrollbar,.pane::-webkit-scrollbar,#page-sessions::-webkit-scrollbar{display:none;width:0;height:0}
 @media (max-width: 1150px){
   .slbl-full{display:none}
   .slbl-short{display:inline}
@@ -345,7 +352,7 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 
 /* ── 右栏 ── */
 .pane{flex:1.8;overflow-y:auto;background:var(--surface-raised);min-width:0}
-.p-inner{max-width:var(--pane-max,680px);margin:0 auto;padding:var(--space-6) var(--space-8) 80px}
+.p-inner{padding:var(--space-6) var(--space-8) 80px}
 .p-head{display:flex;gap:14px;align-items:flex-start}
 .p-title{flex:1;min-width:0}
 .p-tags{display:flex;gap:var(--space-2);align-items:center;margin-bottom:var(--space-2);flex-wrap:wrap}
@@ -491,10 +498,6 @@ button.rf:hover { border-color: var(--accent); }
 .propose-btn:hover { border-color: var(--accent); }
 .propose-btn[disabled] { opacity: .5; cursor: wait; }
 .pdone { color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--accent); cursor: pointer; }
-/* 顶栏版心宽度调节 */
-.padctl { display: flex; align-items: center; gap: 8px; margin-left: 12px; user-select: none; }
-.padctl-name { font-size: 12px; color: var(--ink-500); }
-.padctl input[type="range"] { width: 110px; accent-color: var(--gold-600); cursor: pointer; }
 /* 折叠卡：长的内容默认收起，第一眼不糊脸 */
 details.pcard { padding: 0; }
 details.pcard summary { cursor: pointer; list-style: none; padding: var(--space-4) var(--space-5); display: flex; align-items: center; gap: 8px;
@@ -901,14 +904,47 @@ function cancelProposals() {
   fetch(BASE() + "/threads/proposal/clear" + QS(), { method: "POST" }); // 服务端也清掉，不再恢复
 }
 /* 顶栏交互 */
-/* 版心宽度调节：拖动即改，关掉页面也记得住 */
+/* 三栏分缝拖拽：随手拽宽度，双击复位，位置记住 */
 (function () {
-  const KEY = "sidecar-pane-max";
-  const saved = parseInt(localStorage.getItem(KEY) || "0", 10);
-  const range = document.getElementById("padRange");
-  const apply = (v) => document.documentElement.style.setProperty("--pane-max", v + "px");
-  if (saved >= 560 && saved <= 1000) { range.value = saved; apply(saved); }
-  range.addEventListener("input", () => { const v = parseInt(range.value, 10); apply(v); localStorage.setItem(KEY, String(v)); });
+  const KEY = "sidecar-cols-v1";
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
+  const side = document.querySelector(".side");
+  const list = document.querySelector(".list");
+  if (saved.side) side.style.flex = "0 0 " + saved.side + "px";
+  if (saved.list) list.style.flex = "0 0 " + saved.list + "px";
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  function drag(gripId, target, min, max, name) {
+    const grip = document.getElementById(gripId);
+    grip.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = target.getBoundingClientRect().width;
+      document.body.classList.add("col-dragging");
+      grip.classList.add("on");
+      const mv = (ev) => {
+        const w = clamp(startW + ev.clientX - startX, min, Math.min(max, window.innerWidth - 420));
+        target.style.flex = "0 0 " + w + "px";
+        saved[name] = w;
+      };
+      const up = () => {
+        document.removeEventListener("pointermove", mv);
+        document.removeEventListener("pointerup", up);
+        document.body.classList.remove("col-dragging");
+        grip.classList.remove("on");
+        localStorage.setItem(KEY, JSON.stringify(saved));
+      };
+      document.addEventListener("pointermove", mv);
+      document.addEventListener("pointerup", up);
+    });
+    grip.addEventListener("dblclick", () => {
+      target.style.flex = "";
+      delete saved[name];
+      localStorage.setItem(KEY, JSON.stringify(saved));
+    });
+  }
+  drag("grip1", side, 56, 320, "side");
+  drag("grip2", list, 300, 680, "list");
 })();
 
 document.getElementById("sortBtn").addEventListener("click", () => {
@@ -1331,14 +1367,11 @@ ${hcLink}
       <input id="q" type="text" placeholder="搜原话、事名、文件名……" autocomplete="off" aria-label="搜索旁录">
       <kbd>/</kbd>
     </div>
-    <label class="padctl" title="调整右侧阅读区的版心宽度">
-      <span class="padctl-name">版心</span>
-      <input id="padRange" type="range" min="560" max="1000" step="10" value="680" aria-label="阅读区宽度">
-    </label>
     <div class="fresh" id="fresh"><span class="dot"></span><span id="meta">加载中…</span></div>
   </header>
   <div class="main" id="page-ledger">
     <aside class="side" id="side" role="navigation" aria-label="盘点分组"></aside>
+    <div class="grip" id="grip1" title="拖动调整宽度，双击复位"></div>
     <section class="list" aria-label="事项清单">
       <div class="lhead">
         <h2 id="ltitle">全部在途</h2><span class="cnt" id="lcnt"></span>
@@ -1346,6 +1379,7 @@ ${hcLink}
       </div>
       <div class="lrows" id="lrows" role="listbox" aria-label="事项列表"></div>
     </section>
+    <div class="grip" id="grip2" title="拖动调整宽度，双击复位"></div>
     <section class="pane" id="pane" aria-label="旁录详情"><div class="p-empty">点左边任何一条，这里看原文</div></section>
   </div>
   <div id="page-sessions"><div class="wrap"><div id="list"><div class="empty">加载中…</div></div></div></div>
