@@ -1304,11 +1304,24 @@ function projectIdOfSession(sessionPath) {
         };
       }
     }
-    if (!current) current = all[0] || null;
+    // 宿主没给当前会话时：按会话转录文件的修改时间猜——他正在聊的那个文件此刻一直被写入
+    let guessed = false;
+    if (!current) {
+      let best = null, bestM = 0;
+      for (const r of all.slice(0, 30)) {
+        try {
+          const m = fs.statSync(r.sessionPath).mtimeMs;
+          if (m > bestM) { bestM = m; best = r; }
+        } catch { /* 转录已被清理的孤儿档案跳过 */ }
+      }
+      current = best || all[0] || null;
+      guessed = !!current;
+    }
     return c.json({
       current,
       total: all.length,
       focused: focused && !!current,
+      guessed,
       generatedAt: new Date().toISOString()
     });
   });

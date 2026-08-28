@@ -248,7 +248,7 @@ function render(data) {
       '<div class="status-pill"><span class="led"></span><span class="status-label">' + st.label + "</span></div>" +
       '<h1 class="session-title serif">' + esc(c.title || "未命名会话") + "</h1>" +
       '<div class="session-meta"><span class="meta-agent">' + esc(c.agentId || "") + "</span><span>" + (c.messageCount || 0) + " 条消息</span><span>最后活跃 " + relTime(c.lastActivityAt) + "</span></div>" +
-      (data.focused ? "" : '<span class="unfocused-note">未跟随到当前会话 · 显示最近活跃</span>') +
+      (data.focused ? "" : '<span class="unfocused-note">' + (data.guessed ? '按文件活跃度猜你在这个会话' : '未跟随到当前会话 · 显示最近活跃') + '</span>') +
     "</section>" +
     '<div class="fields">' +
       FIELDS_MAIN.map(function (f) { return renderField(f, c); }).join("") +
