@@ -259,7 +259,7 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 .main{flex:1;display:flex;min-height:0}
 
 /* ── 左栏 ── */
-.side{flex:0 0 216px;border-right:1px solid var(--border);padding:var(--space-4) var(--space-3);overflow-y:auto;background:var(--surface-sunken)}
+.side{flex:0 0 172px;border-right:1px solid var(--border);padding:var(--space-4) var(--space-2);overflow-y:auto;background:var(--surface-sunken)}
 .side .cap{font-size:var(--text-xs);color:var(--text-tertiary);letter-spacing:2px;padding:var(--space-2) var(--space-3) var(--space-1)}
 .sitem{
   display:flex;align-items:center;gap:10px;padding:7px var(--space-3);border-radius:var(--nav-item-radius);
@@ -272,8 +272,22 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 .sitem.dim{color:var(--text-secondary)}
 .shr{height:1px;background:var(--border);margin:10px var(--space-3)}
 
+/* 窗口不够宽时：左栏收成图标条，把宽度让给阅读区 */
+.slbl-short{display:none}
+@media (max-width: 1150px){
+  .slbl-full{display:none}
+  .slbl-short{display:inline}
+  .side{flex-basis:56px;padding:var(--space-4) 6px}
+  .side .cap{display:none}
+  .sitem{flex-direction:column;gap:2px;padding:8px 2px;text-align:center}
+  .sitem .sic{flex:none;font-size:17px}
+  .sitem{font-size:10px;line-height:1.2;word-break:keep-all;overflow:hidden}
+  .sitem .cnt{margin-left:0;font-size:10px}
+  .shr{margin:8px 4px}
+}
+
 /* ── 中栏 ── */
-.list{flex:0 0 470px;border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.list{flex:0 1 400px;min-width:300px;border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
 .lhead{
   flex:0 0 auto;padding:10px 18px;border-bottom:1px solid var(--border);
   display:flex;align-items:center;gap:10px;
@@ -330,7 +344,7 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 .badge.lg{flex:0 0 var(--badge-size-lg);height:var(--badge-size-lg);font-size:var(--text-md);border-radius:var(--radius-md);margin-top:0}
 
 /* ── 右栏 ── */
-.pane{flex:1;overflow-y:auto;background:var(--surface-raised);min-width:0}
+.pane{flex:1.8;overflow-y:auto;background:var(--surface-raised);min-width:0}
 .p-inner{max-width:660px;padding:var(--space-6) var(--space-8) 80px}
 .p-head{display:flex;gap:14px;align-items:flex-start}
 .p-title{flex:1;min-width:0}
@@ -609,15 +623,15 @@ const GDEF = {
 };
 const GORDER = ["wait", "doing", "idle", "old", "done"];
 const SIDENAV = [
-  { id: "all",   label: "全部在途",     groups: ["wait", "doing", "idle"], icon: "📋" },
-  { id: "wait",  label: "等你拍板",     groups: ["wait"],  icon: "✋" },
-  { id: "doing", label: "还在弄",       groups: ["doing"], icon: "⚙️" },
-  { id: "idle",  label: "暂无待办",     groups: ["idle"],  icon: "💤" },
+  { id: "all",   label: "全部在途", short: "全部", groups: ["wait", "doing", "idle"], icon: "📋" },
+  { id: "wait",  label: "等你拍板", short: "拍板", groups: ["wait"],  icon: "✋" },
+  { id: "doing", label: "还在弄",   short: "在弄", groups: ["doing"], icon: "⚙️" },
+  { id: "idle",  label: "暂无待办", short: "待办", groups: ["idle"],  icon: "💤" },
   { hr: true },
-  { id: "old",   label: "更早没动过的", groups: ["old"],  icon: "🗄", dim: true },
-  { id: "done",  label: "办完的事",     groups: ["done"], icon: "✅", dim: true },
+  { id: "old",   label: "更早没动过的", short: "更早", groups: ["old"],  icon: "🗄", dim: true },
+  { id: "done",  label: "办完的事", short: "办完", groups: ["done"], icon: "✅", dim: true },
   { hr: true },
-  { id: "inbox", label: "未归拢的会话", groups: [], icon: "📥", dim: true, goto: "sessions" }
+  { id: "inbox", label: "未归拢", short: "未归拢", groups: [], icon: "📥", dim: true, goto: "sessions" }
 ];
 const SORTS = [ { id: "status", label: "⇅ 按状态" }, { id: "time", label: "⇅ 按时间" }, { id: "sess", label: "⇅ 按会话数" } ];
 let TD = null;
@@ -690,7 +704,7 @@ function renderSide() {
     if (it.hr) { html += '<div class="shr"></div>'; continue; }
     const cnt = it.id === "inbox" ? (TD.unassigned || []).length : entOf(it.groups).length;
     html += '<div class="sitem' + (it.dim ? " dim" : "") + (NAV === it.id ? " on" : "") + '" data-nav="' + it.id + '" tabindex="0" role="button">'
-      + '<span class="sic">' + it.icon + "</span>" + it.label + '<span class="cnt">' + cnt + "</span></div>";
+      + '<span class="sic">' + it.icon + "</span>" + '<span class="slbl-full">' + it.label + '</span><span class="slbl-short">' + (it.short || it.label) + "</span>" + '<span class="cnt">' + cnt + "</span></div>";
   }
   el.innerHTML = html;
   el.querySelectorAll(".sitem").forEach((s) => {
