@@ -276,6 +276,7 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 .slbl-short{display:none}
 /* 新手引导（页面内一步步带着走） */
 .tour-mask{position:fixed;inset:0;z-index:80}
+.tour-dim{position:fixed;inset:0;z-index:80;background:rgba(46,34,20,.30);pointer-events:none;transition:opacity .2s}
 .tour-hole{position:fixed;z-index:81;border-radius:12px;box-shadow:0 0 0 9999px rgba(46,34,20,.42);outline:2px solid var(--gold-600);outline-offset:2px;transition:all .25s ease;pointer-events:none}
 .tour-card{position:fixed;z-index:82;width:300px;background:var(--surface-raised);border:1px solid var(--border-strong);border-radius:14px;box-shadow:0 12px 32px rgba(58,43,22,.22);padding:16px 16px 12px;animation:tour-in .22s ease}
 @keyframes tour-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -967,20 +968,25 @@ function cancelProposals() {
 
 /* ── 新手引导：首次打开自动出现，顶栏「引导」可重播 ── */
 const TOUR_STEPS = [
-  { sel: "#side", pos: "right", title: "左边：分组抽屉", text: "你所有聊天的档案都按「事」摆在这里：等你拍板的、还在弄的、先缓一缓的，各就各位。后面跟着的数字，是这一堆里有几件事。" },
+  { sel: null, pos: "center", title: "先说说，为什么有这个插件", text: "聊天列表是按时间排的，可你的工作是按「事」走的——同一件事往往散落在好几段聊天里，过两天再想，就得翻记录才知道「当时弄到哪了」。这个插件悄悄给每段聊天写一份档案，再把它们归拢成一件一件的「事」，摆成你眼前这本台账。" },
+  { sel: null, pos: "center", title: "它替你回答三个问题", text: "最近在忙些什么？每件事到哪一步了？下一步球在谁手里？——让你 30 秒内想起来，并且随时能回到当时任何一段原文。这就是它存在的全部理由。下面带你走一圈。" },
+  { sel: "#side", pos: "right", title: "左边：分组抽屉", text: "所有事按轻重缓急摆在这里：等你拍板的、还在弄的、先缓一缓的、办完收工的。后面跟着的数字，是这一堆里有几件事。" },
   { sel: '[data-nav="inbox"]', pos: "right", optional: true, title: "没归堆的散件", text: "还没归进任何事的聊天都在「未归拢」里。点进去可以把它并到某件事——系统提方案，你勾选点头才落账，它不会自作主张。" },
-  { sel: ".list", pos: "right", title: "中间：清单", text: "每件事一张卡。标题用的是你自己说过的话，扫一眼就知道是哪件，不用猜。点一张试试。" },
+  { sel: ".list", pos: "right", advanceOn: ".row", title: "中间：清单", text: "每件事一张卡，标题用的是你自己说过的话，扫一眼就知道是哪件。点一张试试——点了这一步会自己往前走。" },
   { sel: ".pane", pos: "left", title: "右边：看全貌", text: "点中一件，这里展开它的全部：顶上横幅一眼看清「球在谁手里」；下面依次是接下来要干什么、做成了什么。折起来的两段（来龙去脉、过程记录）是备查的，想看再点开。" },
   { sel: ".pane", pos: "left", title: "想回到当时的聊天？", text: "详情最底下「相关的聊天」里，每条后面都有「看看结尾」，点开就是那段对话最后几条原文。一件事办完了，右上角「标为办完」就把它收进「办完」。" },
   { sel: ".search", pos: "bottom", title: "找东西", text: "点这里、或按键盘 / 键，搜任何字：标题、正文、文件名都行。Esc 清空。" },
-  { sel: ".main", pos: "center-soft", title: "宽度随手调", text: "栏和栏之间的竖缝可以拖，拖到顺手为止，它会记住。双击缝隙恢复默认。" },
+  { sel: ".main", pos: "center-soft", title: "宽度随手调", text: "栏和栏之间的竖缝可以拖，拖到顺手为止，它会记住。双击缝隙恢复默认。教程期间页面照常能用，随便点，不会打断。" },
   { sel: null, pos: "center", title: "剩下的它会自己干", text: "你聊完一段，十几秒内档案自动更新，不用管它。这份引导随时能从顶栏「引导」再看一遍。" }
 ];
 let tourIdx = 0, tourEls = null;
 function tourClose() {
-  if (tourEls) { tourEls.mask.remove(); tourEls.hole.remove(); tourEls.card.remove(); tourEls = null; }
+  if (tourEls) { tourEls.dim.remove(); tourEls.hole.remove(); tourEls.card.remove(); tourEls = null; }
   document.removeEventListener("keydown", tourKey, true);
-  try { localStorage.setItem("sidecar-tour-v1", "done"); } catch (e) {}
+  window.removeEventListener("resize", tourRepos);
+  if (tourReposHandler) { document.removeEventListener("click", tourReposHandler, true); tourReposHandler = null; }
+  if (tourAdvanceHandler) { document.removeEventListener("click", tourAdvanceHandler, true); tourAdvanceHandler = null; }
+  try { localStorage.setItem("sidecar-tour-v2", "done"); } catch (e) {}
 }
 function tourKey(e) {
   if (e.key === "Escape") { e.stopPropagation(); tourClose(); }
@@ -1006,6 +1012,7 @@ function tourStep(i) {
   }
   const pad = 6;
   if (rect && s.pos !== "center" && s.pos !== "center-soft") {
+    tourEls.dim.style.display = "none";
     tourEls.hole.style.display = "block";
     tourEls.hole.style.left = (rect.left - pad) + "px";
     tourEls.hole.style.top = (rect.top - pad) + "px";
@@ -1013,6 +1020,7 @@ function tourStep(i) {
     tourEls.hole.style.height = (rect.height + pad * 2) + "px";
   } else {
     tourEls.hole.style.display = "none";
+    tourEls.dim.style.display = "block";
   }
   const card = tourEls.card;
   card.innerHTML =
@@ -1031,6 +1039,13 @@ function tourStep(i) {
   card.querySelector("#tourNext").onclick = () => tourStep(i + 1);
   const prev = card.querySelector("#tourPrev");
   if (prev) prev.onclick = () => tourStep(i - 1);
+  if (tourAdvanceHandler) { document.removeEventListener("click", tourAdvanceHandler, true); tourAdvanceHandler = null; }
+  if (s.advanceOn) {
+    tourAdvanceHandler = (e) => {
+      if (e.target && e.target.closest && e.target.closest(s.advanceOn)) setTimeout(() => tourStep(tourIdx + 1), 80);
+    };
+    document.addEventListener("click", tourAdvanceHandler, true);
+  }
   const w = card.offsetWidth, h = card.offsetHeight;
   let left, top;
   if (!rect || s.pos === "center") {
@@ -1051,20 +1066,36 @@ function tourStep(i) {
   card.style.left = left + "px";
   card.style.top = top + "px";
 }
+let tourAdvanceHandler = null, tourReposHandler = null;
+function tourRepos() {
+  if (!tourEls) return;
+  const s = TOUR_STEPS[tourIdx];
+  const el = s && s.sel ? document.querySelector(s.sel) : null;
+  if (!el || s.pos === "center" || s.pos === "center-soft") { tourEls.hole.style.display = "none"; tourEls.dim.style.display = "block"; return; }
+  tourEls.dim.style.display = "none";
+  const pad = 6, rect = el.getBoundingClientRect();
+  tourEls.hole.style.display = "block";
+  tourEls.hole.style.left = (rect.left - pad) + "px";
+  tourEls.hole.style.top = (rect.top - pad) + "px";
+  tourEls.hole.style.width = (rect.width + pad * 2) + "px";
+  tourEls.hole.style.height = (rect.height + pad * 2) + "px";
+}
 function startTour() {
   if (tourEls) return;
-  const mask = document.createElement("div"); mask.className = "tour-mask";
+  const dim = document.createElement("div"); dim.className = "tour-dim";
   const hole = document.createElement("div"); hole.className = "tour-hole";
   const card = document.createElement("div"); card.className = "tour-card";
-  document.body.appendChild(mask); document.body.appendChild(hole); document.body.appendChild(card);
-  tourEls = { mask, hole, card };
-  mask.addEventListener("click", tourClose);
+  document.body.appendChild(dim); document.body.appendChild(hole); document.body.appendChild(card);
+  tourEls = { dim, hole, card };
   document.addEventListener("keydown", tourKey, true);
+  window.addEventListener("resize", tourRepos);
+  tourReposHandler = () => setTimeout(tourRepos, 60);
+  document.addEventListener("click", tourReposHandler, true);
   tourStep(0);
 }
 document.getElementById("tourBtn").addEventListener("click", startTour);
 let tourSeen = null;
-try { tourSeen = localStorage.getItem("sidecar-tour-v1"); } catch (e) {}
+try { tourSeen = localStorage.getItem("sidecar-tour-v2"); } catch (e) {}
 if (!tourSeen) {
   let tries = 0;
   const waitNav = setInterval(() => {
