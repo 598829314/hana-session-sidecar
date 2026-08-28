@@ -274,9 +274,27 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 
 /* 窗口不够宽时：左栏收成图标条，把宽度让给阅读区 */
 .slbl-short{display:none}
+/* 新手引导（页面内一步步带着走） */
+.tour-mask{position:fixed;inset:0;z-index:80}
+.tour-hole{position:fixed;z-index:81;border-radius:12px;box-shadow:0 0 0 9999px rgba(46,34,20,.42);outline:2px solid var(--gold-600);outline-offset:2px;transition:all .25s ease;pointer-events:none}
+.tour-card{position:fixed;z-index:82;width:300px;background:var(--surface-raised);border:1px solid var(--border-strong);border-radius:14px;box-shadow:0 12px 32px rgba(58,43,22,.22);padding:16px 16px 12px;animation:tour-in .22s ease}
+@keyframes tour-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.tour-kicker{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:var(--gold-600);margin-bottom:5px}
+.tour-title{font-family:var(--font-display);font-size:16px;font-weight:600;letter-spacing:.02em;margin-bottom:6px}
+.tour-text{font-size:13px;line-height:1.85;color:var(--ink-700)}
+.tour-foot{display:flex;align-items:center;justify-content:space-between;margin-top:13px}
+.tour-step{font-family:var(--font-mono);font-size:11px;color:var(--ink-400)}
+.tour-btns{display:flex;gap:8px;align-items:center}
+.tour-skip{background:none;border:none;font-size:12px;color:var(--ink-400);cursor:pointer;padding:4px 2px}
+.tour-skip:hover{color:var(--ink-500)}
+.tour-btn{font-size:12.5px;padding:6px 14px;border-radius:999px;cursor:pointer;border:1px solid var(--border-strong);background:var(--bg);color:var(--ink-700);font-family:inherit}
+.tour-btn:hover{background:var(--surface-sunken)}
+.tour-btn-p{background:var(--gold-600);border-color:var(--gold-600);color:#fff}
+.tour-btn-p:hover{background:var(--gold-600)}
+
 /* 分缝拖拽把手 */
 .grip{flex:0 0 6px;cursor:col-resize;z-index:5;transition:background var(--dur-fast)}
-.grip:hover,.grip.on{background:color-mix(in srgb, var(--gold-500) 38%, transparent)}
+.grip:hover,.grip.on{background:color-mix(in srgb, var(--gold-600) 38%, transparent)}
 body.col-dragging{cursor:col-resize;user-select:none;-webkit-user-select:none}
 /* 滚动条隐藏（滚动功能保留） */
 .side,.lrows,.pane,#page-sessions{scrollbar-width:none;-ms-overflow-style:none}
@@ -947,6 +965,115 @@ function cancelProposals() {
   drag("grip2", list, 300, 680, "list");
 })();
 
+/* ── 新手引导：首次打开自动出现，顶栏「引导」可重播 ── */
+const TOUR_STEPS = [
+  { sel: "#side", pos: "right", title: "左边：分组抽屉", text: "你所有聊天的档案都按「事」摆在这里：等你拍板的、还在弄的、先缓一缓的，各就各位。后面跟着的数字，是这一堆里有几件事。" },
+  { sel: '[data-nav="inbox"]', pos: "right", optional: true, title: "没归堆的散件", text: "还没归进任何事的聊天都在「未归拢」里。点进去可以把它并到某件事——系统提方案，你勾选点头才落账，它不会自作主张。" },
+  { sel: ".list", pos: "right", title: "中间：清单", text: "每件事一张卡。标题用的是你自己说过的话，扫一眼就知道是哪件，不用猜。点一张试试。" },
+  { sel: ".pane", pos: "left", title: "右边：看全貌", text: "点中一件，这里展开它的全部：顶上横幅一眼看清「球在谁手里」；下面依次是接下来要干什么、做成了什么。折起来的两段（来龙去脉、过程记录）是备查的，想看再点开。" },
+  { sel: ".pane", pos: "left", title: "想回到当时的聊天？", text: "详情最底下「相关的聊天」里，每条后面都有「看看结尾」，点开就是那段对话最后几条原文。一件事办完了，右上角「标为办完」就把它收进「办完」。" },
+  { sel: ".search", pos: "bottom", title: "找东西", text: "点这里、或按键盘 / 键，搜任何字：标题、正文、文件名都行。Esc 清空。" },
+  { sel: ".main", pos: "center-soft", title: "宽度随手调", text: "栏和栏之间的竖缝可以拖，拖到顺手为止，它会记住。双击缝隙恢复默认。" },
+  { sel: null, pos: "center", title: "剩下的它会自己干", text: "你聊完一段，十几秒内档案自动更新，不用管它。这份引导随时能从顶栏「引导」再看一遍。" }
+];
+let tourIdx = 0, tourEls = null;
+function tourClose() {
+  if (tourEls) { tourEls.mask.remove(); tourEls.hole.remove(); tourEls.card.remove(); tourEls = null; }
+  document.removeEventListener("keydown", tourKey, true);
+  try { localStorage.setItem("sidecar-tour-v1", "done"); } catch (e) {}
+}
+function tourKey(e) {
+  if (e.key === "Escape") { e.stopPropagation(); tourClose(); }
+  else if (e.key === "ArrowRight" || e.key === "Enter") { e.stopPropagation(); tourStep(tourIdx + 1); }
+  else if (e.key === "ArrowLeft") { e.stopPropagation(); tourStep(tourIdx - 1); }
+}
+function tourStep(i) {
+  const dir = i >= tourIdx ? 1 : -1;
+  while (i >= 0 && i < TOUR_STEPS.length) {
+    const s = TOUR_STEPS[i];
+    if (s.sel && !document.querySelector(s.sel)) { i += dir; continue; }
+    break;
+  }
+  if (i < 0) i = 0;
+  if (i >= TOUR_STEPS.length) { tourClose(); return; }
+  tourIdx = i;
+  const s = TOUR_STEPS[i];
+  const el = s.sel ? document.querySelector(s.sel) : null;
+  let rect = null;
+  if (el) {
+    el.scrollIntoView({ block: "nearest" });
+    rect = el.getBoundingClientRect();
+  }
+  const pad = 6;
+  if (rect && s.pos !== "center" && s.pos !== "center-soft") {
+    tourEls.hole.style.display = "block";
+    tourEls.hole.style.left = (rect.left - pad) + "px";
+    tourEls.hole.style.top = (rect.top - pad) + "px";
+    tourEls.hole.style.width = (rect.width + pad * 2) + "px";
+    tourEls.hole.style.height = (rect.height + pad * 2) + "px";
+  } else {
+    tourEls.hole.style.display = "none";
+  }
+  const card = tourEls.card;
+  card.innerHTML =
+    '<div class="tour-kicker">新手引导</div>' +
+    '<div class="tour-title">' + s.title + "</div>" +
+    '<div class="tour-text">' + s.text + "</div>" +
+    '<div class="tour-foot">' +
+      '<button class="tour-skip" id="tourSkip">跳过</button>' +
+      '<span class="tour-step">' + (i + 1) + " / " + TOUR_STEPS.length + "</span>" +
+      '<span class="tour-btns">' +
+        (i > 0 ? '<button class="tour-btn" id="tourPrev">上一步</button>' : "") +
+        '<button class="tour-btn tour-btn-p" id="tourNext">' + (i === TOUR_STEPS.length - 1 ? "完成" : "下一步") + "</button>" +
+      "</span>" +
+    "</div>";
+  card.querySelector("#tourSkip").onclick = tourClose;
+  card.querySelector("#tourNext").onclick = () => tourStep(i + 1);
+  const prev = card.querySelector("#tourPrev");
+  if (prev) prev.onclick = () => tourStep(i - 1);
+  const w = card.offsetWidth, h = card.offsetHeight;
+  let left, top;
+  if (!rect || s.pos === "center") {
+    left = (window.innerWidth - w) / 2; top = (window.innerHeight - h) / 2;
+  } else if (s.pos === "center-soft") {
+    left = rect.left + rect.width / 2 - w / 2; top = rect.bottom + 60;
+    if (left + w > window.innerWidth - 12) left = window.innerWidth - w - 12;
+    if (top + h > window.innerHeight - 12) top = (window.innerHeight - h) / 2;
+  } else if (s.pos === "right") {
+    left = rect.right + 16; top = rect.top + rect.height / 2 - h / 2;
+  } else if (s.pos === "left") {
+    left = rect.left - 16 - w; top = rect.top + Math.min(rect.height / 2, 120) - h / 2;
+  } else {
+    left = rect.left + rect.width / 2 - w / 2; top = rect.bottom + 14;
+  }
+  left = Math.max(10, Math.min(left, window.innerWidth - w - 10));
+  top = Math.max(10, Math.min(top, window.innerHeight - h - 10));
+  card.style.left = left + "px";
+  card.style.top = top + "px";
+}
+function startTour() {
+  if (tourEls) return;
+  const mask = document.createElement("div"); mask.className = "tour-mask";
+  const hole = document.createElement("div"); hole.className = "tour-hole";
+  const card = document.createElement("div"); card.className = "tour-card";
+  document.body.appendChild(mask); document.body.appendChild(hole); document.body.appendChild(card);
+  tourEls = { mask, hole, card };
+  mask.addEventListener("click", tourClose);
+  document.addEventListener("keydown", tourKey, true);
+  tourStep(0);
+}
+document.getElementById("tourBtn").addEventListener("click", startTour);
+let tourSeen = null;
+try { tourSeen = localStorage.getItem("sidecar-tour-v1"); } catch (e) {}
+if (!tourSeen) {
+  let tries = 0;
+  const waitNav = setInterval(() => {
+    tries++;
+    if (document.querySelector(".sitem")) { clearInterval(waitNav); startTour(); }
+    else if (tries > 10) clearInterval(waitNav);
+  }, 700);
+}
+
 document.getElementById("sortBtn").addEventListener("click", () => {
   SORT_IDX = (SORT_IDX + 1) % SORTS.length;
   document.getElementById("sortBtn").textContent = SORTS[SORT_IDX].label;
@@ -1392,6 +1519,7 @@ ${hcLink}
     <section class="list" aria-label="事项清单">
       <div class="lhead">
         <h2 id="ltitle">全部在途</h2><span class="cnt" id="lcnt"></span>
+        <button class="sort-btn" id="tourBtn" title="新手引导：带你走一遍这个页面">引导</button>
         <button class="sort-btn" id="sortBtn" aria-label="切换排序方式">⇅ 按状态</button>
       </div>
       <div class="lrows" id="lrows" role="listbox" aria-label="事项列表"></div>
