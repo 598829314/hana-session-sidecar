@@ -1304,11 +1304,15 @@ function projectIdOfSession(sessionPath) {
         };
       }
     }
-    // 宿主没给当前会话时：按会话转录文件的修改时间猜——他正在聊的那个文件此刻一直被写入
+    // 宿主没给当前会话时（0.450.0 起父页面跨域，domFocus 失效；宿主能力清单无会话焦点 API）：
+    // 按挂件 URL 里的 agentId 收窄到同一个助手，再取会话转录文件 mtime 最新者——他正在聊的文件一直被写入
     let guessed = false;
     if (!current) {
+      const agentFilter = String(c.req.query("agentId") || "");
+      const pool = agentFilter ? all.filter(r => r.agentId === agentFilter) : all;
+      const candidates = (pool.length ? pool : all).slice(0, 30);
       let best = null, bestM = 0;
-      for (const r of all.slice(0, 30)) {
+      for (const r of candidates) {
         try {
           const m = fs.statSync(r.sessionPath).mtimeMs;
           if (m > bestM) { bestM = m; best = r; }

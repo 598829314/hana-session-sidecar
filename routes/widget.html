@@ -386,7 +386,7 @@ pingHost();
 /* 跟随通道诊断探针：向 /widget/probe 上报真实现场（挂载时 + 焦点变化时 + 未跟定时每 20s） */
 function reportProbe(why) {
   try {
-    var info = { why: why, href: location.href, ts: new Date().toISOString() };
+    var info = { why: why, href: location.href, ref: document.referrer || null, ts: new Date().toISOString() };
     try {
       var doc = window.parent && window.parent.document;
       info.parentOrigin = window.parent.location ? window.parent.location.origin : "?";
