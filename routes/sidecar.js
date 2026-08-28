@@ -274,6 +274,25 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 
 /* 窗口不够宽时：左栏收成图标条，把宽度让给阅读区 */
 .slbl-short{display:none}
+/* 相关的聊天：树枝分叉图（事名=树干，会话按时间排成枝桠） */
+.mtree{margin-top:2px}
+.mt-root{text-align:center}
+.mt-rootpill{display:inline-block;font-size:12.5px;font-weight:600;padding:5px 14px;border-radius:999px;background:var(--gold-100);border:1px solid var(--gold-600);color:var(--gold-700);max-width:88%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mt-root::after{content:"";display:block;width:1px;height:14px;background:var(--border-strong);margin:0 auto}
+.mt-cols{display:flex;gap:12px;overflow-x:auto;padding:0 2px 4px;scrollbar-width:none}
+.mt-cols::-webkit-scrollbar{display:none}
+.mt-col{flex:1 0 132px;min-width:132px;position:relative;padding-top:13px}
+.mt-col::before{content:"";position:absolute;top:0;left:50%;width:1px;height:13px;background:var(--border-strong)}
+.mt-col::after{content:"";position:absolute;top:0;left:0;right:0;height:1px;background:var(--border-strong)}
+.mt-col:first-child::after{left:50%}
+.mt-col:last-child::after{right:50%}
+.mt-col:only-child::after{display:none}
+.mt-node{border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:8px 10px;font-size:12px}
+.mt-name{font-weight:600;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mt-meta{display:flex;justify-content:space-between;align-items:center;margin-top:5px;gap:4px 8px;flex-wrap:wrap}
+.mt-meta .exc-link,.mt-meta .s-time{white-space:nowrap}
+.mt-node .exc{margin-top:7px}
+
 /* 阅读面板头部「标为办完」按钮 */
 .p-head{position:relative}
 .pbtn{position:absolute;top:2px;right:0;font-size:12px;padding:5px 13px;border-radius:999px;border:1px solid var(--gold-600);color:var(--gold-700);background:transparent;cursor:pointer;font-family:inherit;transition:all var(--duration-fast)}
@@ -810,17 +829,24 @@ async function excToggle(key) {
   }
   renderPane();
 }
-function sessRow(m) {
-  const open = EXC_OPEN[m.key];
-  const name = (m.title && m.title !== m.key) ? m.title : ((m.origin || "").slice(0, 16) + "…");
-  let inner = "<b>" + escH(name) + '</b> <span class="exc-link" data-key="' + m.key + '" onclick="excToggle(this.dataset.key)">' + (open ? "▾ 收起" : "▸ 看看结尾") + '</span><span class="s-time">' + rel(m.lastActivityAt) + "</span>";
-  if (open) {
-    const d = EXC[m.key];
-    if (d === "loading") inner += '<div class="exc">读原文中……</div>';
-    else if (d && d.error) inner += '<div class="exc">⚠ ' + escH(d.error) + "</div>";
-    else if (d && d.tail) inner += '<div class="exc">' + d.tail.map((x) => '<div><span class="exc-role ' + (x.role === "user" ? "u" : "a") + '">' + (x.role === "user" ? "你" : "助手") + "</span>" + escH(x.text) + "</div>").join("") + "</div>";
-  }
-  return "<li>" + inner + "</li>";
+function sessTree(members, rootName) {
+  const ms = members.slice().sort((a, b) => String(a.lastActivityAt).localeCompare(String(b.lastActivityAt)));
+  const cols = ms.map((m) => {
+    const open = EXC_OPEN[m.key];
+    const name = (m.title && m.title !== m.key) ? m.title : ((m.origin || "").slice(0, 16) + "…");
+    let node = '<div class="mt-node"><div class="mt-name">' + escH(name) + "</div>"
+      + '<div class="mt-meta"><span class="exc-link" data-key="' + m.key + '" onclick="excToggle(this.dataset.key)">' + (open ? "▾ 收起" : "▸ 看看结尾") + '</span><span class="s-time">' + rel(m.lastActivityAt) + "</span></div>";
+    if (open) {
+      const d = EXC[m.key];
+      if (d === "loading") node += '<div class="exc">读原文中……</div>';
+      else if (d && d.error) node += '<div class="exc">⚠ ' + escH(d.error) + "</div>";
+      else if (d && d.tail) node += '<div class="exc">' + d.tail.map((x) => '<div><span class="exc-role ' + (x.role === "user" ? "u" : "a") + '">' + (x.role === "user" ? "你" : "助手") + "</span>" + escH(x.text) + "</div>").join("") + "</div>";
+    }
+    node += "</div>";
+    return '<div class="mt-col">' + node + "</div>";
+  }).join("");
+  return '<div class="mtree"><div class="mt-root"><span class="mt-rootpill">' + escH(rootName) + "</span></div>"
+    + '<div class="mt-cols">' + cols + "</div></div>";
 }
 function renderPane() {
   const pane = document.getElementById("pane");
@@ -846,7 +872,7 @@ function renderPane() {
     cards += pfold("🕐", "过程记录 · " + d.progress.length + " 条", '<div class="tl">' + items + "</div>");
   }
   if (d.members && d.members.length) {
-    cards += pcard("💬", "相关的聊天 · " + d.members.length + " 段", '<ul class="sess">' + d.members.map(sessRow).join("") + "</ul>");
+    cards += pcard("💬", "相关的聊天 · " + d.members.length + " 段", sessTree(d.members, e.thread));
   }
   const doneBtn = '<button class="pbtn' + (e.state === "done" ? " undo" : "") + '" data-id="' + e.id + '" data-st="' + (e.state === "done" ? "active" : "done") + '" onclick="tstatus(this.dataset.id, this.dataset.st)">' + (e.state === "done" ? "↩ 其实还没办完" : "✓ 标为办完") + "</button>";
   pane.innerHTML = '<div class="p-inner"><div class="p-head"><span class="badge lg ' + e.g + '">' + gd.char + "</span>"
