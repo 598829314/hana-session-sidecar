@@ -274,6 +274,13 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 
 /* 窗口不够宽时：左栏收成图标条，把宽度让给阅读区 */
 .slbl-short{display:none}
+/* 阅读面板头部「标为办完」按钮 */
+.p-head{position:relative}
+.pbtn{position:absolute;top:2px;right:0;font-size:12px;padding:5px 13px;border-radius:999px;border:1px solid var(--gold-600);color:var(--gold-700);background:transparent;cursor:pointer;font-family:inherit;transition:all var(--duration-fast)}
+.pbtn:hover{background:var(--gold-100)}
+.pbtn.undo{border-color:var(--border-strong);color:var(--ink-500)}
+.pbtn.undo:hover{background:var(--surface-sunken)}
+
 /* 新手引导（页面内一步步带着走） */
 .tour-mask{position:fixed;inset:0;z-index:80}
 .tour-dim{position:fixed;inset:0;z-index:80;background:rgba(46,34,20,.30);pointer-events:none;transition:opacity .2s}
@@ -713,7 +720,7 @@ function buildEntries() {
       id: "u" + u.key, singleton: true,
       thread: (u.title && u.title !== u.key) ? u.title : ((u.origin || "").slice(0, 14) + "…"),
       quote: u.origin || "", status: u.parkedAt || "", lastTouched: u.lastActivityAt,
-      sess: 1, agent: u.agentId || "", state: "active",
+      sess: 1, agent: u.agentId || "", state: (TD.done || []).indexOf(u.key) >= 0 ? "done" : "active",
       detail: { narrative: u.narrative || "", parkedAt: u.parkedAt || "", outcome: u.outcome || "", next: u.next || [], progress: u.progress || [],
         members: [{ key: u.key, title: u.title, origin: u.origin, agentId: u.agentId, lastActivityAt: u.lastActivityAt }] }
     });
@@ -841,11 +848,12 @@ function renderPane() {
   if (d.members && d.members.length) {
     cards += pcard("💬", "相关的聊天 · " + d.members.length + " 段", '<ul class="sess">' + d.members.map(sessRow).join("") + "</ul>");
   }
-  const doneLink = e.singleton ? "" : ' · <a href="javascript:void 0" class="pdone" data-id="' + e.id + '" data-st="' + (e.state === "done" ? "active" : "done") + '" onclick="tstatus(this.dataset.id, this.dataset.st)">' + (e.state === "done" ? "其实还没办完" : "标为办完") + "</a>";
+  const doneBtn = '<button class="pbtn' + (e.state === "done" ? " undo" : "") + '" data-id="' + e.id + '" data-st="' + (e.state === "done" ? "active" : "done") + '" onclick="tstatus(this.dataset.id, this.dataset.st)">' + (e.state === "done" ? "↩ 其实还没办完" : "✓ 标为办完") + "</button>";
   pane.innerHTML = '<div class="p-inner"><div class="p-head"><span class="badge lg ' + e.g + '">' + gd.char + "</span>"
     + '<div class="p-title"><div class="p-tags"><span class="ptag">' + escH(e.thread) + '</span><span class="pchip ' + e.g + '">' + gd.icon + " " + gd.name + "</span></div>"
     + '<div class="p-quote">' + escH(e.quote || e.thread) + "</div>"
-    + '<div class="p-meta">' + fmtTime(e.lastTouched) + " · " + e.sess + " 段会话 · 由 " + escH(e.agent || "—") + " 经手" + doneLink + "</div></div></div>"
+    + '<div class="p-meta">' + fmtTime(e.lastTouched) + " · " + e.sess + " 段会话 · 由 " + escH(e.agent || "—") + " 经手</div></div>"
+    + doneBtn + "</div>"
     + (e.status ? '<div class="p-status ' + e.g + '">' + gd.icon + " " + escH(e.status) + "</div>" : "")
     + cards + "</div>";
 }
@@ -1176,7 +1184,7 @@ function projectIdOfSession(sessionPath) {
   // threads.json 只存归拢结果（事名、状态、成员会话 key）；卡片内容实时从旁录档案推导，不产生新的 AI 文本
   const threadsPath = path.join(dataDir, "threads.json");
   const readThreads = () => {
-    try { return JSON.parse(fs.readFileSync(threadsPath, "utf-8")); } catch { return { version: 1, threads: [] }; }
+    try { const d = JSON.parse(fs.readFileSync(threadsPath, "utf-8")); d.done = Array.isArray(d.done) ? d.done : []; return d; } catch { return { version: 1, threads: [], done: [] }; }
   };
   const writeThreads = (d) => {
     const tmp = threadsPath + ".tmp";
@@ -1253,7 +1261,7 @@ function projectIdOfSession(sessionPath) {
         lastActivityAt: r.lastActivityAt
       }))
       .sort((a, b) => String(b.lastActivityAt).localeCompare(String(a.lastActivityAt)));
-    return { threads: cards, unassigned, todayNames, today, generatedAt: new Date().toISOString() };
+    return { threads: cards, unassigned, todayNames, today, done: data.done || [], generatedAt: new Date().toISOString() };
   };
 
   app.get("/sidecar/threads", (c) => {
@@ -1322,8 +1330,16 @@ function projectIdOfSession(sessionPath) {
         } else if (op.action === "unassign" && Array.isArray(op.keys)) {
           for (const t of data.threads) { t.keys = (t.keys || []).filter((k) => !op.keys.includes(k)); }
         } else if (op.action === "status" && op.id && op.status) {
-          const t = data.threads.find((x) => x.id === op.id);
-          if (t && ["active", "done"].includes(op.status)) { t.status = op.status; t.updatedAt = now; }
+          if (String(op.id).startsWith("u")) {
+            // 散件事卡（未归拢会话）：done 名单按会话 key 记
+            const key = String(op.id).slice(1);
+            data.done = Array.isArray(data.done) ? data.done : [];
+            if (op.status === "done" && !data.done.includes(key)) data.done.push(key);
+            if (op.status === "active") data.done = data.done.filter((k) => k !== key);
+          } else {
+            const t = data.threads.find((x) => x.id === op.id);
+            if (t && ["active", "done"].includes(op.status)) { t.status = op.status; t.updatedAt = now; }
+          }
         } else if (op.action === "rename" && op.id && op.name) {
           const t = data.threads.find((x) => x.id === op.id);
           if (t) { t.name = String(op.name).slice(0, 40); t.updatedAt = now; }
@@ -1415,15 +1431,27 @@ function projectIdOfSession(sessionPath) {
       const body = await c.req.json().catch(() => ({}));
       const shared = globalThis.__sessionSidecar;
       if (!shared) return c.json({ error: "runtime not ready" }, 503);
+      // 手动重生必须打破增量跳过：gen.lastMsgCount 置 -1，否则没有新消息时生成器直接跳过，按钮形同虚设
+      const breakIncremental = (key) => {
+        try {
+          const fp = path.join(storeDir, key + ".json");
+          const rec = JSON.parse(fs.readFileSync(fp, "utf-8"));
+          rec.gen = { ...(rec.gen || {}), lastMsgCount: -1 };
+          const tmp = fp + ".tmp";
+          fs.writeFileSync(tmp, JSON.stringify(rec, null, 2), "utf-8");
+          fs.renameSync(tmp, fp);
+        } catch { /* 档案不在也照常标脏，首次建档 */ }
+      };
       if (body.key) {
         const ent = shared.sessions.get(body.key);
         if (!ent) return c.json({ error: "unknown key" }, 404);
         ent.dirtyTs = Date.now();
         ent.lastGenAt = 0;
+        breakIncremental(body.key);
         return c.json({ ok: true });
       }
       // 无 key：把全部已知会话标脏
-      for (const ent of shared.sessions.values()) { ent.dirtyTs = Date.now(); ent.lastGenAt = 0; }
+      for (const [k, ent] of shared.sessions) { ent.dirtyTs = Date.now(); ent.lastGenAt = 0; breakIncremental(k); }
       return c.json({ ok: true, all: true });
     } catch (e) {
       return c.json({ error: e.message }, 500);
