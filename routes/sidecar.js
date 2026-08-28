@@ -345,7 +345,7 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 
 /* ── 右栏 ── */
 .pane{flex:1.8;overflow-y:auto;background:var(--surface-raised);min-width:0}
-.p-inner{max-width:660px;padding:var(--space-6) var(--space-8) 80px}
+.p-inner{max-width:var(--pane-max,680px);margin:0 auto;padding:var(--space-6) var(--space-8) 80px}
 .p-head{display:flex;gap:14px;align-items:flex-start}
 .p-title{flex:1;min-width:0}
 .p-tags{display:flex;gap:var(--space-2);align-items:center;margin-bottom:var(--space-2);flex-wrap:wrap}
@@ -491,6 +491,10 @@ button.rf:hover { border-color: var(--accent); }
 .propose-btn:hover { border-color: var(--accent); }
 .propose-btn[disabled] { opacity: .5; cursor: wait; }
 .pdone { color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--accent); cursor: pointer; }
+/* 顶栏版心宽度调节 */
+.padctl { display: flex; align-items: center; gap: 8px; margin-left: 12px; user-select: none; }
+.padctl-name { font-size: 12px; color: var(--ink-500); }
+.padctl input[type="range"] { width: 110px; accent-color: var(--gold-600); cursor: pointer; }
 /* 折叠卡：长的内容默认收起，第一眼不糊脸 */
 details.pcard { padding: 0; }
 details.pcard summary { cursor: pointer; list-style: none; padding: var(--space-4) var(--space-5); display: flex; align-items: center; gap: 8px;
@@ -897,6 +901,16 @@ function cancelProposals() {
   fetch(BASE() + "/threads/proposal/clear" + QS(), { method: "POST" }); // 服务端也清掉，不再恢复
 }
 /* 顶栏交互 */
+/* 版心宽度调节：拖动即改，关掉页面也记得住 */
+(function () {
+  const KEY = "sidecar-pane-max";
+  const saved = parseInt(localStorage.getItem(KEY) || "0", 10);
+  const range = document.getElementById("padRange");
+  const apply = (v) => document.documentElement.style.setProperty("--pane-max", v + "px");
+  if (saved >= 560 && saved <= 1000) { range.value = saved; apply(saved); }
+  range.addEventListener("input", () => { const v = parseInt(range.value, 10); apply(v); localStorage.setItem(KEY, String(v)); });
+})();
+
 document.getElementById("sortBtn").addEventListener("click", () => {
   SORT_IDX = (SORT_IDX + 1) % SORTS.length;
   document.getElementById("sortBtn").textContent = SORTS[SORT_IDX].label;
@@ -1317,6 +1331,10 @@ ${hcLink}
       <input id="q" type="text" placeholder="搜原话、事名、文件名……" autocomplete="off" aria-label="搜索旁录">
       <kbd>/</kbd>
     </div>
+    <label class="padctl" title="调整右侧阅读区的版心宽度">
+      <span class="padctl-name">版心</span>
+      <input id="padRange" type="range" min="560" max="1000" step="10" value="680" aria-label="阅读区宽度">
+    </label>
     <div class="fresh" id="fresh"><span class="dot"></span><span id="meta">加载中…</span></div>
   </header>
   <div class="main" id="page-ledger">
