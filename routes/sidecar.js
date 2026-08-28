@@ -274,6 +274,33 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 
 /* 窗口不够宽时：左栏收成图标条，把宽度让给阅读区 */
 .slbl-short{display:none}
+/* 关联视图：事与事泳道关系图 */
+#page-relations{display:none;flex:1;overflow:auto;padding:20px 26px 60px;scrollbar-width:none}
+#page-relations::-webkit-scrollbar{display:none}
+.rl-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.rl-head h2{font-family:var(--font-display);font-size:19px;font-weight:600;letter-spacing:.02em}
+.rl-sub{font-size:12px;color:var(--text-tertiary);margin-top:3px}
+.rl-empty{margin:60px 0;text-align:center;color:var(--text-tertiary);font-size:13px;line-height:2.1}
+.rl-legend{display:flex;gap:16px;align-items:center;margin-top:12px;font-size:11.5px;color:var(--text-tertiary);flex-wrap:wrap}
+.rl-legend i{display:inline-block;width:16px;height:2px;vertical-align:middle;margin-right:5px;border-radius:1px}
+.rl-stage{position:relative;margin-top:14px;min-width:100%}
+.rl-svg{position:absolute;left:0;top:0;z-index:0}
+.rl-edge{fill:none;stroke-width:1.5;opacity:.8}
+.rl-edge.dep{stroke:var(--amber)}
+.rl-edge.drv{stroke:var(--blue)}
+.rl-edge.sib{stroke:var(--stone-500)}
+.rl-edge.seq{stroke:var(--green)}
+.rl-lane{position:absolute;top:0;font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--text-tertiary);z-index:1}
+.rl-node{position:absolute;z-index:1;background:var(--surface);border:1px solid var(--border);border-radius:12px;display:flex;align-items:center;gap:8px;padding:0 10px;cursor:pointer;transition:border-color var(--duration-fast),box-shadow var(--duration-fast)}
+.rl-node:hover{border-color:var(--gold-600);box-shadow:0 4px 14px rgba(58,43,22,.14)}
+.rl-name{font-size:12.5px;font-weight:600;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-width:0}
+.rl-tag{position:absolute;z-index:2;transform:translate(-50%,-50%);font-size:10.5px;padding:2px 8px;border-radius:999px;background:var(--surface-raised);border:1px solid var(--border);color:var(--text-secondary);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;cursor:default}
+.rl-tag b{font-weight:600;margin-right:4px}
+.rl-tag.dep b{color:var(--amber-700)}
+.rl-tag.drv b{color:var(--blue-700)}
+.rl-tag.sib b{color:var(--stone-600)}
+.rl-tag.seq b{color:var(--green)}
+
 /* 相关的聊天：树枝分叉图（事名=树干，会话按时间排成枝桠） */
 .mtree{margin-top:2px}
 .mt-root{text-align:center}
@@ -692,6 +719,93 @@ let NAV = "all", ROW = null, SORT_IDX = 0;
 let EXC = {};       // key -> 原文摘录缓存
 let EXC_OPEN = {};  // key -> 展开状态
 
+/* ── 关联视图：事与事之间的联系（AI 分析 + 泳道关系图） ── */
+const RTYPE = { "依赖": "dep", "派生": "drv", "同属": "sib", "先后": "seq" };
+function jumpToEntry(id) {
+  const e = ENTRIES.find((x) => x.id === id);
+  if (!e) return;
+  switchView("threads");
+  NAV = "all"; ROW = id;
+  renderSide(); renderList();
+  setTimeout(() => { const el = document.querySelector('.mrow[data-id="' + id + '"]'); if (el) el.scrollIntoView({ block: "center" }); }, 60);
+}
+async function proposeRelations() {
+  const btn = document.getElementById("rlBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "AI 通读中，几十秒……"; }
+  try {
+    const res = await fetch(BASE() + "/relations/propose" + QS(), { method: "POST" });
+    const d = await res.json();
+    if (d && d.error) {
+      if (btn) { btn.disabled = false; btn.textContent = "重试"; }
+      const note = document.getElementById("rlNote");
+      if (note) note.textContent = "分析失败：" + d.error;
+      return;
+    }
+    await loadThreads();
+    renderRelations();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = "重试"; }
+  }
+}
+function renderRelations() {
+  const box = document.getElementById("page-relations");
+  if (!box) return;
+  const RD = TD && TD.relations;
+  const has = RD && Array.isArray(RD.links);
+  let html = '<div class="rl-head"><div><h2>事与事之间的联系</h2><div class="rl-sub" id="rlNote">'
+    + (has && RD.ts ? "分析于 " + rel(RD.ts) + " · " : "") + "AI 只写有凭据的联系：依赖 / 派生 / 同属 / 先后，没有把握的一条不写</div></div>"
+    + '<button class="sort-btn" id="rlBtn">' + (has ? "重新分析" : "让 AI 找一遍联系") + "</button></div>";
+  if (!has) {
+    html += '<div class="rl-empty">还没分析过。<br>点右上角，AI 会通读每件事的来龙去脉，把事与人之间真实存在的联系画出来。</div>';
+    box.innerHTML = html;
+    box.querySelector("#rlBtn").onclick = proposeRelations;
+    return;
+  }
+  const lanes = GORDER.map((g) => ({ g, items: ENTRIES.filter((e) => e.g === g) })).filter((l) => l.items.length);
+  const NW = 176, NH = 58, GAPY = 26, HEADH = 66;
+  const laneW = Math.max(210, Math.floor((box.clientWidth - 40) / Math.max(lanes.length, 1)));
+  const pos = {};
+  lanes.forEach((l, li) => l.items.forEach((e, i) => { pos[e.id] = { x: li * laneW + (laneW - NW) / 2, y: HEADH + i * (NH + GAPY), e }; }));
+  const maxRows = Math.max.apply(null, lanes.map((l) => l.items.length).concat([1]));
+  const W = lanes.length * laneW, H = HEADH + maxRows * (NH + GAPY) + 20;
+  const links = RD.links.filter((lk) => pos[lk.a] && pos[lk.b]);
+  let svg = '<svg class="rl-svg" width="' + W + '" height="' + H + '">';
+  let tags = "";
+  for (const lk of links) {
+    const A = pos[lk.a], B = pos[lk.b];
+    const ax = A.x + NW / 2, ay = A.y + NH / 2, bx = B.x + NW / 2, by = B.y + NH / 2;
+    const cls = RTYPE[lk.type] || "sib";
+    let dAttr;
+    if (Math.abs(ax - bx) < 4) { const my = (ay + by) / 2; dAttr = "M " + ax + " " + ay + " C " + ax + " " + my + " " + bx + " " + my + " " + bx + " " + by; }
+    else { const mx = (ax + bx) / 2; dAttr = "M " + ax + " " + ay + " C " + mx + " " + ay + " " + mx + " " + by + " " + bx + " " + by; }
+    svg += '<path class="rl-edge ' + cls + '" d="' + dAttr + '"/>';
+    const tx = (ax + bx) / 2, ty = (ay + by) / 2;
+    tags += '<div class="rl-tag ' + cls + '" style="left:' + tx + "px;top:" + ty + 'px" title="' + escH(lk.note || "") + '"><b>' + escH(lk.type) + "</b>" + escH(lk.note || "") + "</div>";
+  }
+  svg += "</svg>";
+  let laneLabels = "";
+  lanes.forEach((l, li) => {
+    const gd = GDEF[l.g];
+    laneLabels += '<div class="rl-lane" style="left:' + (li * laneW + 6) + 'px">' + gd.icon + " " + gd.name + " · " + l.items.length + "</div>";
+  });
+  let nodes = "";
+  for (const id in pos) {
+    const P = pos[id], gd = GDEF[P.e.g];
+    nodes += '<div class="rl-node" style="left:' + P.x + "px;top:" + P.y + 'px" data-id="' + id + '" title="点我回到台账看这件事">'
+      + '<span class="badge ' + P.e.g + '">' + gd.char + '</span><span class="rl-name">' + escH(P.e.thread) + "</span></div>";
+  }
+  const legend = '<div class="rl-legend">'
+    + '<span><i style="background:var(--amber)"></i>依赖（等它的结果）</span>'
+    + '<span><i style="background:var(--blue)"></i>派生（从它长出来的）</span>'
+    + '<span><i style="background:var(--stone-500)"></i>同属（同一主题的两翼）</span>'
+    + '<span><i style="background:var(--green)"></i>先后（它做完接着它）</span>'
+    + '<span style="margin-left:auto">' + RD.links.length + " 条联系 · 点任何一张卡跳回台账</span></div>";
+  html += legend + '<div class="rl-stage" style="height:' + H + 'px">' + svg + laneLabels + nodes + tags + "</div>";
+  box.innerHTML = html;
+  box.querySelector("#rlBtn").onclick = proposeRelations;
+  box.querySelectorAll(".rl-node").forEach((n) => { n.addEventListener("click", () => jumpToEntry(n.dataset.id)); });
+}
+
 function switchView(v) {
   document.querySelectorAll(".tabs button").forEach((b) => {
     const on = b.dataset.tab === v;
@@ -699,8 +813,12 @@ function switchView(v) {
     b.setAttribute("aria-selected", on);
   });
   document.getElementById("page-ledger").style.display = v === "threads" ? "" : "none";
-  document.getElementById("page-sessions").style.display = v === "threads" ? "none" : "block";
-  if (v === "threads") loadThreads(); else load();
+  document.getElementById("page-sessions").style.display = v === "sessions" ? "block" : "none";
+  document.getElementById("page-relations").style.display = v === "relations" ? "block" : "none";
+  if (v === "threads") loadThreads();
+  else if (v === "sessions") load();
+  else if (TD) renderRelations();
+  else loadThreads().then(() => renderRelations());
 }
 
 function dayStartJs() { const n = new Date(); const d = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 4, 0, 0, 0); if (n < d) d.setDate(d.getDate() - 1); return d; }
@@ -1006,7 +1124,7 @@ const TOUR_STEPS = [
   { sel: null, pos: "center", title: "它替你回答三个问题", text: "最近在忙些什么？每件事到哪一步了？下一步球在谁手里？——让你 30 秒内想起来，并且随时能回到当时任何一段原文。这就是它存在的全部理由。下面带你走一圈。" },
   { sel: "#side", pos: "right", title: "左边：分组抽屉", text: "所有事按轻重缓急摆在这里：等你拍板的、还在弄的、先缓一缓的、办完收工的。后面跟着的数字，是这一堆里有几件事。" },
   { sel: '[data-nav="inbox"]', pos: "right", optional: true, title: "没归堆的散件", text: "还没归进任何事的聊天都在「未归拢」里。点进去可以把它并到某件事——系统提方案，你勾选点头才落账，它不会自作主张。" },
-  { sel: ".list", pos: "right", advanceOn: ".row", title: "中间：清单", text: "每件事一张卡，标题用的是你自己说过的话，扫一眼就知道是哪件。点一张试试——点了这一步会自己往前走。" },
+  { sel: ".list", pos: "right", advanceOn: ".mrow", title: "中间：清单", text: "每件事一张卡，标题用的是你自己说过的话，扫一眼就知道是哪件。点一张试试——点了这一步会自己往前走。" },
   { sel: ".pane", pos: "left", title: "右边：看全貌", text: "点中一件，这里展开它的全部：顶上横幅一眼看清「球在谁手里」；下面依次是接下来要干什么、做成了什么。折起来的两段（来龙去脉、过程记录）是备查的，想看再点开。" },
   { sel: ".pane", pos: "left", title: "想回到当时的聊天？", text: "详情最底下「相关的聊天」里，每条后面都有「看看结尾」，点开就是那段对话最后几条原文。一件事办完了，右上角「标为办完」就把它收进「办完」。" },
   { sel: ".search", pos: "bottom", title: "找东西", text: "点这里、或按键盘 / 键，搜任何字：标题、正文、文件名都行。Esc 清空。" },
@@ -1230,6 +1348,18 @@ function projectIdOfSession(sessionPath) {
     } catch {}
   };
   const clearProposal = () => { try { fs.rmSync(proposalPath); } catch {} };
+  // 事与事的联系分析结果落盘：AI 提议、人看，刷新不丢
+  const relationsPath = path.join(dataDir, "relations.json");
+  const readRelations = () => {
+    try { return JSON.parse(fs.readFileSync(relationsPath, "utf-8")); } catch { return null; }
+  };
+  const writeRelations = (r) => {
+    try {
+      const tmp = relationsPath + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(r, null, 2), "utf-8");
+      fs.renameSync(tmp, relationsPath);
+    } catch {}
+  };
   // 一天的边界在凌晨 04:00（用户作息）：现在不到 4 点，今天从昨天 4 点算起
   const dayStart04 = () => {
     const n = new Date();
@@ -1287,7 +1417,7 @@ function projectIdOfSession(sessionPath) {
         lastActivityAt: r.lastActivityAt
       }))
       .sort((a, b) => String(b.lastActivityAt).localeCompare(String(a.lastActivityAt)));
-    return { threads: cards, unassigned, todayNames, today, done: data.done || [], generatedAt: new Date().toISOString() };
+    return { threads: cards, unassigned, todayNames, today, done: data.done || [], relations: readRelations(), generatedAt: new Date().toISOString() };
   };
 
   app.get("/sidecar/threads", (c) => {
@@ -1382,6 +1512,53 @@ function projectIdOfSession(sessionPath) {
       writeThreads(data);
       clearProposal(); // 落账后旧提议作废
       return c.json({ ok: true, count: data.threads.length });
+    } catch (e) { return c.json({ error: e.message }, 500); }
+  });
+
+  // 事与事的联系分析：AI 通读每件事的状态与下一步，找出依赖/派生/同属/先后四类有据可依的联系
+  app.post("/sidecar/relations/propose", async (c) => {
+    try {
+      const shared = globalThis.__sessionSidecar;
+      if (!shared?.sampleText) return c.json({ error: "生成通道未就绪" }, 503);
+      const out = deriveThreads(listSidecars());
+      const items = [];
+      for (const t of out.threads || []) {
+        items.push({ id: t.id, 事名: t.name, 来龙去脉: (t.narrative || "").slice(0, 160), 此刻: (t.parkedAt || "").slice(0, 100), 成果: (t.outcome || "").slice(0, 100), 接下来: (t.next || []).slice(0, 3) });
+      }
+      for (const u of out.unassigned || []) {
+        items.push({ id: "u" + u.key, 事名: (u.title || "").slice(0, 30), 来龙去脉: (u.narrative || "").slice(0, 160), 此刻: (u.parkedAt || "").slice(0, 100), 成果: (u.outcome || "").slice(0, 100), 接下来: (u.next || []).slice(0, 3) });
+      }
+      if (items.length < 2) return c.json({ ok: true, links: [], note: "事太少，还谈不上联系" });
+      const numbered = items.map((it, i) => ({ 编号: i + 1, ...it }));
+      const sys = "你是事务关系分析员。给你一批「事」（同一个人正在推进的工作，每条含来龙去脉、此刻状态、成果、接下来）。找出事与事之间真实存在的联系，只分四类：依赖（A 在等 B 的结果或材料才能动）、派生（A 是从 B 里长出来/拆出来的子任务）、同属（两件事是同一个工程、同一个活动或同一套材料的不同部分）、先后（A 做完接着做 B）。铁律：1.「都要同一个人确认」「都要走流程」这类办事程序上的共性一律不算联系，只有内容、对象、成果物直接相关才算；2. note 必须点出具体对象（文件、工程、活动、人的名字），不许写「都涉及…」「都是…」开头的空话；3. 没有把握的一条都不许写，宁缺毋滥，也许只有三五条，这很正常；4. 编号必须原样引用；5. note 里不许出现英文双引号，需要引用就用「」。只输出 JSON：{\"links\":[{\"a\":1,\"b\":3,\"type\":\"依赖\",\"note\":\"…\"}]}";
+      const raw = await shared.sampleText(sys, JSON.stringify(numbered), 4000);
+      const cleaned = String(raw || "").replace(/```json|```/g, "");
+      const start = cleaned.indexOf("{");
+      // 容错解析：模型偶尔漏掉收尾的 } 或 ]，逐级补全再试
+      let parsed = null;
+      if (start >= 0) {
+        const body = cleaned.slice(start).replace(/,\s*([}\]])/g, "$1");
+        for (const t of [body, body + "}", body + "]}", body + "}]}", body + "\"}]\}"]) {
+          try { parsed = JSON.parse(t); break; } catch { /* 继续试 */ }
+        }
+      }
+      if (!parsed) return c.json({ error: "AI 输出没解析成 JSON" }, 502);
+      const TYPES = ["依赖", "派生", "同属", "先后"];
+      const seen = new Set();
+      const links = [];
+      for (const l of (parsed && parsed.links) || []) {
+        const ai = (l.a | 0) - 1, bi = (l.b | 0) - 1;
+        if (ai < 0 || bi < 0 || ai === bi || ai >= items.length || bi >= items.length) continue;
+        if (!TYPES.includes(l.type)) continue;
+        const pairKey = [Math.min(ai, bi), Math.max(ai, bi)].join("-");
+        if (seen.has(pairKey)) continue;
+        seen.add(pairKey);
+        links.push({ a: items[ai].id, b: items[bi].id, type: l.type, note: String(l.note || "").slice(0, 40) });
+        if (links.length >= 30) break;
+      }
+      const saved = { ts: new Date().toISOString(), links };
+      writeRelations(saved);
+      return c.json({ ok: true, ...saved });
     } catch (e) { return c.json({ error: e.message }, 500); }
   });
 
@@ -1591,6 +1768,7 @@ ${hcLink}
     <nav class="tabs" role="tablist">
       <button class="on" data-tab="threads" role="tab" aria-selected="true">台账</button>
       <button data-tab="sessions" role="tab" aria-selected="false">会话</button>
+      <button data-tab="relations" role="tab" aria-selected="false">关联</button>
     </nav>
     <div class="search">
       <input id="q" type="text" placeholder="搜原话、事名、文件名……" autocomplete="off" aria-label="搜索旁录">
@@ -1613,6 +1791,7 @@ ${hcLink}
     <section class="pane" id="pane" aria-label="旁录详情"><div class="p-empty">点左边任何一条，这里看原文</div></section>
   </div>
   <div id="page-sessions"><div class="wrap"><div id="list"><div class="empty">加载中…</div></div></div></div>
+  <div id="page-relations"></div>
 </div>
 <script>(function(){window.parent.postMessage({source:"hana-plugin",type:"ready"},"*")})();</script>
 <script>${PAGE_JS}</script>
