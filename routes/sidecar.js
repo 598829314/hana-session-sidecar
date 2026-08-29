@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -274,6 +275,7 @@ header.top h1{font-size:var(--text-lg);font-weight:700;white-space:nowrap;letter
 
 /* 窗口不够宽时：左栏收成图标条，把宽度让给阅读区 */
 .slbl-short{display:none}
+.rl-frame{width:100%;flex:1;min-height:660px;border:1px solid var(--border);border-radius:14px;background:var(--surface);margin-top:14px}
 /* 关联视图：事与事泳道关系图 */
 #page-relations{display:none;flex:1;overflow:auto;padding:20px 26px 60px;scrollbar-width:none}
 #page-relations::-webkit-scrollbar{display:none}
@@ -752,6 +754,14 @@ function renderRelations() {
   if (!box) return;
   const RD = TD && TD.relations;
   const has = RD && Array.isArray(RD.links);
+  if (has && RD.mapReady) {
+    box.innerHTML = '<div class="rl-head"><div><h2>事与事之间的联系</h2><div class="rl-sub" id="rlNote">'
+      + (RD.ts ? "分析于 " + rel(RD.ts) + " · " : "") + RD.links.length + " 条有凭据的联系 · 双击节点看上下游 · / 搜索 · P 播导览路线</div></div>"
+      + '<button class="sort-btn" id="rlBtn">重新分析</button></div>'
+      + '<iframe class="rl-frame" src="' + BASE() + "/relations/map.html" + QS() + '" title="在办事务地图"></iframe>';
+    box.querySelector("#rlBtn").onclick = proposeRelations;
+    return;
+  }
   let html = '<div class="rl-head"><div><h2>事与事之间的联系</h2><div class="rl-sub" id="rlNote">'
     + (has && RD.ts ? "分析于 " + rel(RD.ts) + " · " : "") + "AI 只写有凭据的联系：依赖 / 派生 / 同属 / 先后，没有把握的一条不写</div></div>"
     + '<button class="sort-btn" id="rlBtn">' + (has ? "重新分析" : "让 AI 找一遍联系") + "</button></div>";
@@ -1516,50 +1526,156 @@ function projectIdOfSession(sessionPath) {
   });
 
   // 事与事的联系分析：AI 通读每件事的状态与下一步，找出依赖/派生/同属/先后四类有据可依的联系
+  // 关联分析：两遍 AI（找联系 → 聚类信息架构）+ archify 确定性渲染成交互式地图
   app.post("/sidecar/relations/propose", async (c) => {
     try {
       const shared = globalThis.__sessionSidecar;
       if (!shared?.sampleText) return c.json({ error: "生成通道未就绪" }, 503);
       const out = deriveThreads(listSidecars());
+      const doneList = readThreads().done || [];
+      const now = Date.now();
+      const statusOf = (lastActive, next, done) => {
+        if (done) return "done";
+        const days = (now - new Date(lastActive || 0).getTime()) / 86400000;
+        const hasWork = (next || []).length > 0;
+        if (days <= 2 && hasWork) return "wait";
+        if (days <= 7) return "doing";
+        if (!hasWork) return "idle";
+        return "old";
+      };
       const items = [];
       for (const t of out.threads || []) {
-        items.push({ id: t.id, 事名: t.name, 来龙去脉: (t.narrative || "").slice(0, 160), 此刻: (t.parkedAt || "").slice(0, 100), 成果: (t.outcome || "").slice(0, 100), 接下来: (t.next || []).slice(0, 3) });
+        items.push({ id: t.id, 事名: t.name, g: statusOf(t.lastActiveAt, t.next, t.done),
+          来龙去脉: (t.narrative || "").slice(0, 160), 此刻: (t.parkedAt || "").slice(0, 100), 成果: (t.outcome || "").slice(0, 100), 接下来: (t.next || []).slice(0, 3) });
       }
       for (const u of out.unassigned || []) {
-        items.push({ id: "u" + u.key, 事名: (u.title || "").slice(0, 30), 来龙去脉: (u.narrative || "").slice(0, 160), 此刻: (u.parkedAt || "").slice(0, 100), 成果: (u.outcome || "").slice(0, 100), 接下来: (u.next || []).slice(0, 3) });
+        items.push({ id: "u" + u.key, 事名: (u.title || "").slice(0, 30), g: statusOf(u.lastActiveAt, u.next, doneList.includes(u.key)),
+          来龙去脉: (u.narrative || "").slice(0, 160), 此刻: (u.parkedAt || "").slice(0, 100), 成果: (u.outcome || "").slice(0, 100), 接下来: (u.next || []).slice(0, 3) });
       }
       if (items.length < 2) return c.json({ ok: true, links: [], note: "事太少，还谈不上联系" });
       const numbered = items.map((it, i) => ({ 编号: i + 1, ...it }));
-      const sys = "你是事务关系分析员。给你一批「事」（同一个人正在推进的工作，每条含来龙去脉、此刻状态、成果、接下来）。找出事与事之间真实存在的联系，只分四类：依赖（A 在等 B 的结果或材料才能动）、派生（A 是从 B 里长出来/拆出来的子任务）、同属（两件事是同一个工程、同一个活动或同一套材料的不同部分）、先后（A 做完接着做 B）。铁律：1.「都要同一个人确认」「都要走流程」这类办事程序上的共性一律不算联系，只有内容、对象、成果物直接相关才算；2. note 必须点出具体对象（文件、工程、活动、人的名字），不许写「都涉及…」「都是…」开头的空话；3. 没有把握的一条都不许写，宁缺毋滥，也许只有三五条，这很正常；4. 编号必须原样引用；5. note 里不许出现英文双引号，需要引用就用「」。只输出 JSON：{\"links\":[{\"a\":1,\"b\":3,\"type\":\"依赖\",\"note\":\"…\"}]}";
-      const raw = await shared.sampleText(sys, JSON.stringify(numbered), 4000);
-      const cleaned = String(raw || "").replace(/```json|```/g, "");
-      const start = cleaned.indexOf("{");
-      // 容错解析：模型偶尔漏掉收尾的 } 或 ]，逐级补全再试
-      let parsed = null;
-      if (start >= 0) {
-        const body = cleaned.slice(start).replace(/,\s*([}\]])/g, "$1");
-        for (const t of [body, body + "}", body + "]}", body + "}]}", body + "\"}]\}"]) {
-          try { parsed = JSON.parse(t); break; } catch { /* 继续试 */ }
+
+      // ── 第一遍：找联系（实测收敛后的紧箍咒 prompt）──
+      const sysA = "你是事务关系分析员。给你一批「事」（同一个人正在推进的工作，每条含来龙去脉、此刻状态、成果、接下来）。找出事与事之间真实存在的联系，只分四类：依赖（A 在等 B 的结果或材料才能动）、派生（A 是从 B 里长出来/拆出来的子任务）、同属（两件事是同一个工程、同一个活动或同一套材料的不同部分）、先后（A 做完接着做 B）。铁律：1.「都要同一个人确认」「都要走流程」这类办事程序上的共性一律不算联系，只有内容、对象、成果物直接相关才算；2. note 必须点出具体对象（文件、工程、活动、人的名字），不许写「都涉及…」「都是…」开头的空话；3. 没有把握的一条都不许写，宁缺毋滥，也许只有三五条，这很正常；4. 编号必须原样引用；5. note 里不许出现英文双引号，需要引用就用「」；6. note 里不许出现「事 N」这类编号引用——看地图的人看不到编号，直接点名。只输出 JSON：{\"links\":[{\"a\":1,\"b\":3,\"type\":\"依赖\",\"note\":\"…\"}]}";
+      const tolerantJson = (raw) => {
+        const cleaned = String(raw || "").replace(/```json|```/g, "");
+        const s = cleaned.indexOf("{");
+        if (s < 0) return null;
+        const body = cleaned.slice(s).replace(/,\s*([}\]])/g, "$1");
+        for (const t of [body, body + "}", body + "]}", body + "}]}", body + "\"}]}\""]) {
+          try { return JSON.parse(t); } catch { /* 继续试 */ }
         }
-      }
-      if (!parsed) return c.json({ error: "AI 输出没解析成 JSON" }, 502);
+        return null;
+      };
+      const parsedA = tolerantJson(await shared.sampleText(sysA, JSON.stringify(numbered), 4000));
+      if (!parsedA) return c.json({ error: "AI 输出没解析成 JSON" }, 502);
       const TYPES = ["依赖", "派生", "同属", "先后"];
       const seen = new Set();
       const links = [];
-      for (const l of (parsed && parsed.links) || []) {
+      for (const l of (parsedA && parsedA.links) || []) {
         const ai = (l.a | 0) - 1, bi = (l.b | 0) - 1;
         if (ai < 0 || bi < 0 || ai === bi || ai >= items.length || bi >= items.length) continue;
         if (!TYPES.includes(l.type)) continue;
         const pairKey = [Math.min(ai, bi), Math.max(ai, bi)].join("-");
         if (seen.has(pairKey)) continue;
         seen.add(pairKey);
-        links.push({ a: items[ai].id, b: items[bi].id, type: l.type, note: String(l.note || "").slice(0, 40) });
+        const note = String(l.note || "").replace(/事\s*\d+/g, "").replace(/\s{2,}/g, " ").trim();
+        links.push({ a: items[ai].id, b: items[bi].id, type: l.type, note: note.slice(0, 24) });
         if (links.length >= 30) break;
       }
-      const saved = { ts: new Date().toISOString(), links };
+      const saved = { ts: new Date().toISOString(), links, mapReady: false };
+      if (!links.length) { writeRelations(saved); return c.json({ ok: true, ...saved, note: "没找到有把握的联系" }); }
+
+      // ── 第二遍：聚类信息架构（只处理有联系的事）──
+      const involvedIdx = new Set();
+      for (const l of links) {
+        const ai = items.findIndex((it) => it.id === l.a), bi = items.findIndex((it) => it.id === l.b);
+        if (ai >= 0) involvedIdx.add(ai);
+        if (bi >= 0) involvedIdx.add(bi);
+      }
+      const pool = [...involvedIdx].map((i) => numbered[i]);
+      const linksForB = links.map((l) => ({ a: (items.findIndex((it) => it.id === l.a)) + 1, b: (items.findIndex((it) => it.id === l.b)) + 1, type: l.type, note: l.note }));
+      const sysB = "你是信息架构师。给你若干件「事」（编号+事名）和它们之间已确认的联系。任务：1. 按主题把这些事聚成 2~6 组，每组起 4~8 字的名字（点名具体对象，如「阜康宣传素材」，不许叫「其他」「综合」）；2. 给每件事写 4~10 字身份小注（它是干什么的，如「研讨会发言稿」）；3. 设计 1~3 条导览路线：每条挑 2~5 件同一线索的事，起 4~8 字名字，加一句看点（不超过 20 字，说清这条线为什么值得看）。铁律：一个编号只能进一个组；编号必须原样引用；只输出 JSON：{\"clusters\":[{\"name\":\"…\",\"members\":[1,2]}],\"sublabels\":{\"1\":\"…\"},\"views\":[{\"label\":\"…\",\"members\":[1,2],\"note\":\"…\"}]}";
+      const parsedB = tolerantJson(await shared.sampleText(sysB, JSON.stringify({ 事: pool, 联系: linksForB }), 3000)) || {};
+
+      // ── 确定性布局：聚类成列，archify 校验渲染 ──
+      const num2id = new Map(numbered.map((n) => [n.编号, n.id]));
+      const idSet = new Set(pool.map((n) => n.id));
+      const claimed = new Set();
+      const clusters = [];
+      for (const cl of parsedB.clusters || []) {
+        const members = (Array.isArray(cl.members) ? cl.members : []).map((n) => num2id.get(n | 0)).filter((id) => id && idSet.has(id) && !claimed.has(id));
+        if (!members.length) continue;
+        members.forEach((id) => claimed.add(id));
+        clusters.push({ name: String(cl.name || "未命名").slice(0, 10), members });
+      }
+      const rest = [...idSet].filter((id) => !claimed.has(id));
+      if (rest.length) clusters.push({ name: "散点", members: rest });
+      const GTYPE = { wait: "security", doing: "backend", idle: "cloud", old: "external", done: "database" };
+      const byId = new Map(items.map((it) => [it.id, it]));
+      const CW = 210, CH = 76, GX = 90, GY = 36, OX = 60, OY = 100;
+      const components = [], boundaries = [], compId = new Map();
+      clusters.forEach((cl, ci) => {
+        const x = OX + ci * (CW + GX);
+        const wraps = [];
+        cl.members.forEach((id, ri) => {
+          const cid = "c" + ci + "_" + ri;
+          compId.set(id, cid); wraps.push(cid);
+          const it = byId.get(id);
+          const sub = String(((parsedB.sublabels || {})[[...num2id].find(([, v]) => v === id)?.[0]]) || "").slice(0, 12);
+          components.push({ id: cid, type: GTYPE[it.g] || "backend", label: it.事名.slice(0, 14), sublabel: sub || undefined, pos: [x, OY + ri * (CH + GY)], size: [CW, CH] });
+        });
+        boundaries.push({ kind: "region", label: cl.name, wraps });
+      });
+      const clusterOf = new Map();
+      clusters.forEach((cl, ci) => cl.members.forEach((id) => clusterOf.set(id, ci)));
+      const VAR = { "依赖": "emphasis", "派生": "dashed", "同属": "default", "先后": "default" };
+      const connections = links.filter((l) => compId.has(l.a) && compId.has(l.b)).map((l, i) => {
+        const conn = { id: "e" + i, from: compId.get(l.a), to: compId.get(l.b), label: (l.type + "：" + l.note).slice(0, 26), variant: VAR[l.type] || "default" };
+        if (clusterOf.get(l.a) === clusterOf.get(l.b)) conn.labelDy = 26; // 同列竖边，标签挪进间隙
+        return conn;
+      });
+      const views = (parsedB.views || []).map((v, i) => ({
+        id: "v" + i, label: String(v.label || "路线").slice(0, 10),
+        focus: (Array.isArray(v.members) ? v.members : []).map((n) => num2id.get(n | 0)).filter((id) => compId.has(id)).map((id) => compId.get(id)),
+        note: String(v.note || "").slice(0, 30)
+      })).filter((v) => v.focus.length >= 2);
+      const ir = {
+        schema_version: 1, diagram_type: "architecture",
+        meta: {
+          title: "在办事务地图", locale: "zh-CN", quality_profile: "showcase", views,
+          legend: { mode: "all", entries: {
+            security: { label: "等你拍板" }, backend: { label: "还在弄" }, cloud: { label: "暂无待办" },
+            external: { label: "更早没动过" }, database: { label: "办完的事" },
+            frontend: { visible: false }, messagebus: { visible: false }
+          } }
+        },
+        components, boundaries, connections
+      };
+      const irPath = path.join(shared.dataDir, "relations-map.architecture.json");
+      const htmlPath = path.join(shared.dataDir, "relations-map.html");
+      fs.writeFileSync(irPath, JSON.stringify(ir, null, 1));
+      let archifyBin = "/Users/gengwenhao/Documents/Kimi CLI/03Project/archify/archify/bin/archify.mjs";
+      try { const cc = JSON.parse(fs.readFileSync(path.join(shared.dataDir, "config.json"), "utf-8")); if (cc.global && cc.global.archifyPath) archifyBin = cc.global.archifyPath; } catch { /* 用默认 */ }
+      let renderOk = false, renderMsg = "archify 未运行";
+      if (fs.existsSync(archifyBin)) {
+        const r = spawnSync(process.execPath, [archifyBin, "deliver", "architecture", irPath, htmlPath, "--quality", "showcase", "--json"], { timeout: 90000, encoding: "utf-8" });
+        try { const dr = JSON.parse(r.stdout || "{}"); renderOk = dr.ok === true || dr.status === "ok"; if (!renderOk) renderMsg = JSON.stringify(dr.diagnostics || dr).slice(0, 300); }
+        catch { renderMsg = String(r.stderr || r.stdout || r.error || "渲染失败").slice(0, 300); }
+      } else { renderMsg = "archify 不在 " + archifyBin; }
+      saved.mapReady = renderOk && fs.existsSync(htmlPath);
+      if (!saved.mapReady) saved.mapError = renderMsg;
       writeRelations(saved);
       return c.json({ ok: true, ...saved });
     } catch (e) { return c.json({ error: e.message }, 500); }
+  });
+
+  // 渲染好的事务地图（archify 自包含 HTML，直接 iframe 展示）
+  app.get("/sidecar/relations/map.html", (c) => {
+    const shared = globalThis.__sessionSidecar;
+    const p = shared && path.join(shared.dataDir, "relations-map.html");
+    if (!p || !fs.existsSync(p)) return c.text("还没有地图，点「重新分析」生成", 404);
+    return c.html(fs.readFileSync(p, "utf-8"));
   });
 
   // 半自动归拢提议：AI 读未归拢会话的摘要，建议「新建事卡」或「归入现有事」，人点头后才 apply
