@@ -1556,7 +1556,7 @@ function projectIdOfSession(sessionPath) {
       const numbered = items.map((it, i) => ({ 编号: i + 1, ...it }));
 
       // ── 第一遍：找联系（实测收敛后的紧箍咒 prompt）──
-      const sysA = "你是事务关系分析员。给你一批「事」（同一个人正在推进的工作，每条含来龙去脉、此刻状态、成果、接下来）。找出事与事之间真实存在的联系，只分四类：依赖（A 在等 B 的结果或材料才能动）、派生（A 是从 B 里长出来/拆出来的子任务）、同属（两件事是同一个工程、同一个活动或同一套材料的不同部分）、先后（A 做完接着做 B）。铁律：1.「都要同一个人确认」「都要走流程」这类办事程序上的共性一律不算联系，只有内容、对象、成果物直接相关才算；2. note 必须点出具体对象（文件、工程、活动、人的名字），不许写「都涉及…」「都是…」开头的空话；3. 没有把握的一条都不许写，宁缺毋滥，也许只有三五条，这很正常；4. 编号必须原样引用；5. note 里不许出现英文双引号，需要引用就用「」；6. note 里不许出现「事 N」这类编号引用——看地图的人看不到编号，直接点名。只输出 JSON：{\"links\":[{\"a\":1,\"b\":3,\"type\":\"依赖\",\"note\":\"…\"}]}";
+      const sysA = "你是事务关系分析员。给你一批「事」（同一个人正在推进的工作，每条含来龙去脉、此刻状态、成果、接下来）。找出事与事之间真实存在的联系，只分四类：依赖（A 在等 B 的结果或材料才能动）、派生（A 是从 B 里长出来/拆出来的子任务）、同属（两件事是同一个工程、同一个活动或同一套材料的不同部分）、先后（A 做完接着做 B）。铁律：1.「都要同一个人确认」「都要走流程」这类办事程序上的共性一律不算联系，只有内容、对象、成果物直接相关才算；2. note 必须点出具体对象（文件、工程、活动、人的名字），不许写「都涉及…」「都是…」开头的空话；3. 没有把握的一条都不许写，宁缺毋滥，也许只有三五条，这很正常；4. 编号必须原样引用；5. note 里不许出现英文双引号，需要引用就用「」；6. note 里不许出现「事 N」这类编号引用；7. note 不超过 6 个字，只写凭据关键词（如「等口径」「共用素材包」），不要重复两件事的名字——地图两头就写着它们。只输出 JSON：{\"links\":[{\"a\":1,\"b\":3,\"type\":\"依赖\",\"note\":\"…\"}]}";
       const tolerantJson = (raw) => {
         const cleaned = String(raw || "").replace(/```json|```/g, "");
         const s = cleaned.indexOf("{");
@@ -1580,7 +1580,7 @@ function projectIdOfSession(sessionPath) {
         if (seen.has(pairKey)) continue;
         seen.add(pairKey);
         const note = String(l.note || "").replace(/事\s*\d+/g, "").replace(/\s{2,}/g, " ").trim();
-        links.push({ a: items[ai].id, b: items[bi].id, type: l.type, note: note.slice(0, 24) });
+        links.push({ a: items[ai].id, b: items[bi].id, type: l.type, note: note.slice(0, 8) });
         if (links.length >= 30) break;
       }
       const saved = { ts: new Date().toISOString(), links, mapReady: false };
@@ -1598,7 +1598,7 @@ function projectIdOfSession(sessionPath) {
       const sysB = "你是信息架构师。给你若干件「事」（编号+事名）和它们之间已确认的联系。任务：1. 按主题把这些事聚成 2~6 组，每组起 4~8 字的名字（点名具体对象，如「阜康宣传素材」，不许叫「其他」「综合」）；2. 给每件事写 4~10 字身份小注（它是干什么的，如「研讨会发言稿」）；3. 设计 1~3 条导览路线：每条挑 2~5 件同一线索的事，起 4~8 字名字，加一句看点（不超过 20 字，说清这条线为什么值得看）。铁律：一个编号只能进一个组；编号必须原样引用；只输出 JSON：{\"clusters\":[{\"name\":\"…\",\"members\":[1,2]}],\"sublabels\":{\"1\":\"…\"},\"views\":[{\"label\":\"…\",\"members\":[1,2],\"note\":\"…\"}]}";
       const parsedB = tolerantJson(await shared.sampleText(sysB, JSON.stringify({ 事: pool, 联系: linksForB }), 3000)) || {};
 
-      // ── 确定性布局：聚类成列，archify 校验渲染 ──
+      // ── 确定性布局：聚类成列 + 链接权重列排序 + 走廊/飞越路由（archify 校验渲染）──
       const num2id = new Map(numbered.map((n) => [n.编号, n.id]));
       const idSet = new Set(pool.map((n) => n.id));
       const claimed = new Set();
@@ -1613,26 +1613,101 @@ function projectIdOfSession(sessionPath) {
       if (rest.length) clusters.push({ name: "散点", members: rest });
       const GTYPE = { wait: "security", doing: "backend", idle: "cloud", old: "external", done: "database" };
       const byId = new Map(items.map((it) => [it.id, it]));
+      const id2num = new Map(numbered.map((n) => [n.id, n.编号]));
       const CW = 210, CH = 76, GX = 90, GY = 36, OX = 60, OY = 100;
-      const components = [], boundaries = [], compId = new Map();
-      clusters.forEach((cl, ci) => {
-        const x = OX + ci * (CW + GX);
+      // 列间链接权重 → 贪心排序：联系最紧的列靠在一起，让多数边变成邻列
+      const colOf0 = new Map();
+      clusters.forEach((cl, ci) => cl.members.forEach((id) => colOf0.set(id, ci)));
+      const adj = clusters.map(() => ({}));
+      for (const l of links) {
+        const ca = colOf0.get(l.a), cb = colOf0.get(l.b);
+        if (ca == null || cb == null || ca === cb) continue;
+        adj[ca][cb] = (adj[ca][cb] || 0) + 1;
+        adj[cb][ca] = (adj[cb][ca] || 0) + 1;
+      }
+      const deg = adj.map((a) => Object.values(a).reduce((s, x) => s + x, 0));
+      const order = [], remaining = new Set(clusters.map((_, i) => i));
+      if (remaining.size) {
+        let first = [...remaining].reduce((m, ci) => (deg[ci] > deg[m] ? ci : m));
+        order.push(first); remaining.delete(first);
+      }
+      while (remaining.size) {
+        let best = null, bestScore = -1, bestDeg = -1;
+        for (const ci of remaining) {
+          const sc = order.reduce((s, o) => s + (adj[ci][o] || 0), 0);
+          if (sc > bestScore || (sc === bestScore && deg[ci] > bestDeg)) { best = ci; bestScore = sc; bestDeg = deg[ci]; }
+        }
+        order.push(best); remaining.delete(best);
+      }
+      // 铺坐标 + 建组件
+      const components = [], boundaries = [], compId = new Map(), posOf = {};
+      order.forEach((oldCi, newCi) => {
+        const cl = clusters[oldCi];
+        const x = OX + newCi * (CW + GX);
         const wraps = [];
         cl.members.forEach((id, ri) => {
-          const cid = "c" + ci + "_" + ri;
+          const cid = "c" + newCi + "_" + ri;
           compId.set(id, cid); wraps.push(cid);
+          posOf[cid] = [x, OY + ri * (CH + GY)];
           const it = byId.get(id);
-          const sub = String(((parsedB.sublabels || {})[[...num2id].find(([, v]) => v === id)?.[0]]) || "").slice(0, 12);
-          components.push({ id: cid, type: GTYPE[it.g] || "backend", label: it.事名.slice(0, 14), sublabel: sub || undefined, pos: [x, OY + ri * (CH + GY)], size: [CW, CH] });
+          const sub = String((parsedB.sublabels || {})[id2num.get(id)] || "").slice(0, 12);
+          components.push({ id: cid, type: GTYPE[it.g] || "backend", label: it.事名.slice(0, 14), sublabel: sub || undefined, pos: posOf[cid], size: [CW, CH] });
         });
         boundaries.push({ kind: "region", label: cl.name, wraps });
       });
-      const clusterOf = new Map();
-      clusters.forEach((cl, ci) => cl.members.forEach((id) => clusterOf.set(id, ci)));
+      // 路由：同列竖边 / 邻列肘接 / 跨列飞越（高航道）；走廊在间隙中带居中均分
+      const colOfPos = (x) => Math.round((x - OX) / (CW + GX));
+      const gapCenter = (gi) => OX + gi * (CW + GX) + CW + GX / 2;
       const VAR = { "依赖": "emphasis", "派生": "dashed", "同属": "default", "先后": "default" };
-      const connections = links.filter((l) => compId.has(l.a) && compId.has(l.b)).map((l, i) => {
-        const conn = { id: "e" + i, from: compId.get(l.a), to: compId.get(l.b), label: (l.type + "：" + l.note).slice(0, 26), variant: VAR[l.type] || "default" };
-        if (clusterOf.get(l.a) === clusterOf.get(l.b)) conn.labelDy = 26; // 同列竖边，标签挪进间隙
+      const linkable = links.filter((l) => compId.has(l.a) && compId.has(l.b));
+      const einfos = linkable.map((l) => {
+        const pa = posOf[compId.get(l.a)], pb = posOf[compId.get(l.b)];
+        return { l, ca: colOfPos(pa[0]), cb: colOfPos(pb[0]), say: pa[1] + CH / 2, tby: pb[1] + CH / 2 };
+      });
+      const gapUse = {};
+      for (const e of einfos) {
+        if (e.ca === e.cb) continue;
+        const right = e.cb > e.ca;
+        const g1 = right ? e.ca : e.ca - 1;
+        gapUse[g1] = (gapUse[g1] || 0) + 1;
+        if (Math.abs(e.cb - e.ca) >= 2) {
+          const g2 = right ? e.cb - 1 : e.cb;
+          gapUse[g2] = (gapUse[g2] || 0) + 1;
+        }
+      }
+      const LANES = [30, 48, 66, 14];
+      const longs = einfos.filter((e) => Math.abs(e.cb - e.ca) >= 2).sort((a, b) => Math.abs(b.cb - b.ca) - Math.abs(a.cb - a.ca));
+      const laneOf = new Map(longs.map((e, i) => [e.l, LANES[i % LANES.length]]));
+      const gapIdx = {};
+      const connections = einfos.map((e, i) => {
+        const l = e.l;
+        const conn = { id: "e" + i, from: compId.get(l.a), to: compId.get(l.b), label: (l.type + "·" + l.note).slice(0, 10), variant: VAR[l.type] || "default" };
+        if (e.ca === e.cb) {
+          const topY = Math.min(e.say, e.tby), botY = Math.max(e.say, e.tby);
+          conn.labelAt = [Math.round(posOf[conn.from][0] + CW / 2 + 34), Math.round((topY + botY) / 2)];
+          return conn;
+        }
+        const right = e.cb > e.ca;
+        conn.fromSide = right ? "right" : "left";
+        conn.toSide = right ? "left" : "right";
+        const g1 = right ? e.ca : e.ca - 1;
+        const k1 = gapIdx[g1] || 0; gapIdx[g1] = k1 + 1;
+        const x1 = Math.round(gapCenter(g1) + (k1 - (gapUse[g1] - 1) / 2) * 22);
+        if (Math.abs(e.cb - e.ca) === 1) {
+          if (Math.abs(e.say - e.tby) < 4) {
+            conn.labelAt = [x1, Math.round(e.say) - 12]; // 同行邻列：直线，标签钉间隙上方
+          } else {
+            conn.via = [[x1, Math.round(e.say)], [x1, Math.round(e.tby)]];
+            conn.labelSegment = 1; conn.labelDx = 8;
+          }
+        } else {
+          const g2 = right ? e.cb - 1 : e.cb;
+          const k2 = gapIdx[g2] || 0; gapIdx[g2] = k2 + 1;
+          const x2 = Math.round(gapCenter(g2) + (k2 - (gapUse[g2] - 1) / 2) * 22);
+          const fy = laneOf.get(l);
+          conn.via = [[x1, Math.round(e.say)], [x1, fy], [x2, fy], [x2, Math.round(e.tby)]];
+          conn.labelSegment = 2; conn.labelDy = -10;
+        }
         return conn;
       });
       const views = (parsedB.views || []).map((v, i) => ({
@@ -1643,7 +1718,7 @@ function projectIdOfSession(sessionPath) {
       const ir = {
         schema_version: 1, diagram_type: "architecture",
         meta: {
-          title: "在办事务地图", locale: "zh-CN", quality_profile: "showcase", views,
+          title: "在办事务地图", locale: "zh-CN", quality_profile: "standard", views,
           legend: { mode: "all", entries: {
             security: { label: "等你拍板" }, backend: { label: "还在弄" }, cloud: { label: "暂无待办" },
             external: { label: "更早没动过" }, database: { label: "办完的事" },
@@ -1659,7 +1734,7 @@ function projectIdOfSession(sessionPath) {
       try { const cc = JSON.parse(fs.readFileSync(path.join(shared.dataDir, "config.json"), "utf-8")); if (cc.global && cc.global.archifyPath) archifyBin = cc.global.archifyPath; } catch { /* 用默认 */ }
       let renderOk = false, renderMsg = "archify 未运行";
       if (fs.existsSync(archifyBin)) {
-        const r = spawnSync(process.execPath, [archifyBin, "deliver", "architecture", irPath, htmlPath, "--quality", "showcase", "--json"], { timeout: 90000, encoding: "utf-8" });
+        const r = spawnSync(process.execPath, [archifyBin, "deliver", "architecture", irPath, htmlPath, "--json"], { timeout: 90000, encoding: "utf-8" });
         try { const dr = JSON.parse(r.stdout || "{}"); renderOk = dr.ok === true || dr.status === "ok"; if (!renderOk) renderMsg = JSON.stringify(dr.diagnostics || dr).slice(0, 300); }
         catch { renderMsg = String(r.stderr || r.stdout || r.error || "渲染失败").slice(0, 300); }
       } else { renderMsg = "archify 不在 " + archifyBin; }
